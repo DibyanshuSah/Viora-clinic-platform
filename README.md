@@ -66,8 +66,6 @@ From root directory:
 ```bash
 npm run dev
 ```
-* **Frontend**: http://localhost:5173
-* **Backend API**: http://localhost:5000/api/v1
 
 
 *(You can also use the convenient **Demo Mode** buttons on the Login page or in the Sidebar to switch workspaces with one click).*
