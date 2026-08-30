@@ -69,16 +69,6 @@ npm run dev
 * **Frontend**: http://localhost:5173
 * **Backend API**: http://localhost:5000/api/v1
 
-### 3. Demo Credentials
-
-| Role | Username | Password | Default Landing Page |
-| :--- | :--- | :--- | :--- |
-| **ADMIN** | `admin` | `admin123` | `/admin/dashboard` |
-| **DOCTOR** | `dr.sharma` | `doctor123` | `/doctor/appointments` |
-| **DOCTOR** | `dr.ananya` | `doctor123` | `/doctor/appointments` |
-| **DOCTOR** | `dr.vikram` | `doctor123` | `/doctor/appointments` |
-| **STAFF** | `staff1` | `staff123` | `/staff/dashboard` |
-| **STAFF** | `staff2` | `staff123` | `/staff/dashboard` |
 
 *(You can also use the convenient **Demo Mode** buttons on the Login page or in the Sidebar to switch workspaces with one click).*
 
