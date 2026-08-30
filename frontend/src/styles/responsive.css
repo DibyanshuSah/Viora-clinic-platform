@@ -1,0 +1,109 @@
+/* RESPONSIVE DESIGN STYLES */
+
+/* Large Desktop (> 1200px) */
+@media (min-width: 1201px) {
+  .sidebar-mobile-toggle {
+    display: none;
+  }
+}
+
+/* Tablet (768px - 1200px) */
+@media (max-width: 1200px) {
+  :root {
+    --sidebar-width: 220px;
+  }
+
+  .page-body {
+    padding: var(--spacing-md);
+  }
+
+  .form-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .form-grid-3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Mobile Screens (<= 768px) */
+@media (max-width: 768px) {
+  :root {
+    --header-height: 56px;
+  }
+
+  .app-container {
+    flex-direction: column;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .main-content {
+    height: auto;
+    overflow-y: visible;
+  }
+
+  /* Mobile Drawer Sidebar */
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    z-index: 1500;
+    transform: translateX(-100%);
+    transition: transform var(--transition-normal);
+    box-shadow: var(--shadow-xl);
+  }
+
+  .app-sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 1400;
+  }
+
+  .page-body {
+    padding: var(--spacing-sm);
+  }
+
+  .form-grid-4, .form-grid-3, .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .v-card {
+    padding: var(--spacing-md);
+  }
+
+  .v-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+  }
+
+  .modal-content {
+    max-width: 100%;
+    margin: var(--spacing-sm);
+  }
+
+  .toast-container {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+  }
+
+  /* Consultation 3-column layout collapses to single column on mobile */
+  .consultation-workspace-layout {
+    grid-template-columns: 1fr !important;
+  }
+}

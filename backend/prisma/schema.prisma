@@ -1,0 +1,244 @@
+// VIORA Clinic Management System - Prisma Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  username    String   @unique
+  password    String
+  role        String   // ADMIN | DOCTOR | STAFF
+  name        String
+  email       String   @unique
+  phone       String
+  referenceId String?  // links to Doctor.doctorId or Staff.staffId
+  status      String   @default("Active") // Active | Inactive
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("users")
+}
+
+model ClinicProfile {
+  id                 String   @id @default("viora-primary")
+  clinicName         String   @default("VIORA")
+  tagline            String   @default("Advanced Clinic & Healthcare Centre")
+  logoUrl            String?
+  address            String
+  city               String   @default("Bengaluru")
+  state              String   @default("Karnataka")
+  pinCode            String   @default("560034")
+  contactNumber      String   @default("+91 80 4920 8800")
+  email              String   @default("contact@vioraclinic.com")
+  website            String   @default("https://vioraclinic.com")
+  registrationNumber String   @default("KA-MED-2024-88421")
+  gstNumber          String   @default("29AABCU9603R1ZM")
+  openingTime        String   @default("08:00 AM")
+  closingTime        String   @default("08:00 PM")
+  currency           String   @default("₹")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("clinic_profiles")
+}
+
+model Doctor {
+  doctorId           String   @id
+  userId             String   @unique
+  name               String
+  gender             String   @default("Other")
+  specialization     String
+  qualification      String   @default("")
+  registrationNumber String   @default("")
+  phone              String
+  email              String
+  consultationRates  String   // JSON stringified: { consultationFee, doctorCut, clinicShare }
+  procedureRates     String   @default("{}") // JSON stringified: { [procedureId]: { price, doctorCut, clinicShare } }
+  workingDays        String   // JSON stringified: ["Monday", "Tuesday", ...]
+  workingHours       String   // JSON stringified: { start: "09:00", end: "17:00" }
+  breakTimes         String   // JSON stringified: { start: "13:00", end: "14:00" }
+  status             String   @default("Active") // Active | Inactive
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Relationships
+  appointments  Appointment[]
+  consultations Consultation[]
+  prescriptions Prescription[]
+  bills         Bill[]
+
+  @@map("doctors")
+}
+
+model Staff {
+  staffId        String   @id
+  userId         String   @unique
+  name           String
+  phone          String
+  email          String
+  username       String   @unique
+  shift          String   @default("Morning Shift")
+  workingDays    String   // JSON stringified array
+  startTime      String   @default("08:00")
+  endTime        String   @default("14:00")
+  scheduledHours Float    @default(6)
+  workedHours    Float    @default(6)
+  attendance     String   @default("Present")
+  status         String   @default("Active")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("staff")
+}
+
+model Procedure {
+  procedureId      String   @id
+  name             String
+  defaultPrice     Float
+  defaultDoctorCut Float    @default(0)
+  description      String   @default("")
+  status           String   @default("Active")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("procedures")
+}
+
+model Patient {
+  patientId        String   @id
+  name             String
+  dateOfBirth      String?
+  age              Int
+  gender           String   @default("Other")
+  phone            String
+  email            String?
+  address          String?
+  city             String   @default("Bengaluru")
+  state            String   @default("Karnataka")
+  pinCode          String?
+  allergies        String   @default("None")
+  medicalHistory   String   @default("None")
+  emergencyContact String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relationships
+  appointments  Appointment[]
+  consultations Consultation[]
+  prescriptions Prescription[]
+  bills         Bill[]
+
+  @@map("patients")
+}
+
+model Appointment {
+  appointmentId      String   @id
+  patientId          String
+  doctorId           String
+  appointmentType    String   @default("Consultation") // Consultation | Procedure
+  procedureId        String?
+  procedureName      String?
+  date               String
+  time               String
+  status             String   @default("Waiting") // Waiting | In Consultation | Completed | Cancelled
+  queueNumber        String   @default("Q-01")
+  waitingTimeMinutes Int      @default(0)
+  createdBy          String   @default("Front Desk Staff")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Relationships
+  patient      Patient        @relation(fields: [patientId], references: [patientId], onDelete: Cascade)
+  doctor       Doctor         @relation(fields: [doctorId], references: [doctorId], onDelete: Cascade)
+  consultation Consultation?
+  bill         Bill?
+
+  @@map("appointments")
+}
+
+model Consultation {
+  consultationId   String   @id
+  appointmentId    String?  @unique
+  patientId        String
+  doctorId         String
+  chiefComplaint   String   @default("")
+  symptoms         String   @default("")
+  diagnosis        String   @default("")
+  vitals           String   @default("{}") // JSON: { bp, pulse, temp, weight, spo2 }
+  examination      String   @default("")
+  treatment        String   @default("")
+  procedureDetails String   @default("")
+  privateNotes     String   @default("") // Strictly Doctor-Only Private Notes
+  prescriptionId   String?  @unique
+  status           String   @default("Completed")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relationships
+  patient      Patient       @relation(fields: [patientId], references: [patientId], onDelete: Cascade)
+  doctor       Doctor        @relation(fields: [doctorId], references: [doctorId], onDelete: Cascade)
+  appointment  Appointment?  @relation(fields: [appointmentId], references: [appointmentId])
+  prescription Prescription? @relation(fields: [prescriptionId], references: [prescriptionId])
+
+  @@map("consultations")
+}
+
+model Prescription {
+  prescriptionId String   @id
+  consultationId String?  @unique
+  patientId      String
+  doctorId       String
+  medicines      String   // JSON stringified array of { medicine, dosage, frequency, duration, instructions }
+  diagnosis      String   @default("")
+  advice         String   @default("")
+  followUpDate   String?
+  procedures     String   @default("[]") // JSON stringified array
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  patient      Patient       @relation(fields: [patientId], references: [patientId], onDelete: Cascade)
+  doctor       Doctor        @relation(fields: [doctorId], references: [doctorId], onDelete: Cascade)
+  consultation Consultation?
+
+  @@map("prescriptions")
+}
+
+model Bill {
+  billId                  String   @id
+  invoiceNumber           String   @unique
+  patientId               String
+  doctorId                String
+  appointmentId           String?  @unique
+  consultationType        String   @default("Consultation")
+  consultationFee         Float    @default(0)
+  doctorCutConsultation   Float    @default(0)
+  clinicShareConsultation Float    @default(0)
+  procedures              String   @default("[]") // JSON array of items
+  subtotal                Float
+  discount                Float    @default(0)
+  tax                     Float    @default(0)
+  total                   Float
+  paid                    Float    @default(0)
+  balance                 Float    @default(0)
+  paymentMethod           String   @default("Cash") // Cash | UPI | Card | Other
+  paymentStatus           String   @default("Paid") // Paid | Partially Paid | Pending
+  doctorCutTotal          Float    @default(0)
+  clinicShareTotal        Float    @default(0)
+  createdBy               String   @default("Front Desk Staff")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  // Relationships
+  patient     Patient      @relation(fields: [patientId], references: [patientId], onDelete: Cascade)
+  doctor      Doctor       @relation(fields: [doctorId], references: [doctorId], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointmentId], references: [appointmentId])
+
+  @@map("bills")
+}
