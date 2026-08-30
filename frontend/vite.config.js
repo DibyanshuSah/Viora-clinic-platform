@@ -7,6 +7,7 @@ export default defineConfig({
     port: 5173,
     host: true,
     strictPort: true,
+    allowedHosts: ['vioracare.in', '.vioracare.in'],
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:5000',
