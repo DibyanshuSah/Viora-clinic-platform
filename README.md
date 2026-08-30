@@ -4,47 +4,6 @@
 
 ---
 
-## 🏥 Architecture Overview
-
-The system is built on a physically separated frontend and backend architecture:
-
-```text
-VIORA/
-│
-├── frontend/                     # React 18 + Vite + Plain CSS + Lucide Icons
-│   ├── src/
-│   │   ├── components/           # Common, Layout, Cards, Tables, Modals, Invoices, RX
-│   │   ├── context/              # Auth (RBAC), Clinic Profile, Toast Notifications
-│   │   ├── layouts/              # AdminLayout, DoctorLayout, StaffLayout
-│   │   ├── pages/                # Admin, Doctor, Staff, Auth Workspaces
-│   │   ├── routes/               # AppRoutes with Role-Based Redirection
-│   │   ├── services/             # Centralized API service (/api/v1/...)
-│   │   └── styles/               # Strict mandated palette, variables.css, global.css
-│   ├── index.html
-│   ├── vite.config.js
-│   └── package.json
-│
-├── backend/                      # Node.js + Express + REST API
-│   ├── src/
-│   │   ├── config/               # Environment & In-Memory Database Store
-│   │   ├── controllers/          # Auth, Admin, Doctors, Staff, Patients, Bills, etc.
-│   │   ├── middleware/           # JWT Auth, Role Authorization (RBAC), Error Handler
-│   │   ├── routes/               # Versioned REST endpoints (/api/v1/...)
-│   │   ├── services/             # Business Logic & Relational Operations
-│   │   ├── seed/                 # Realistic clinical seeds
-│   │   ├── app.js                # Express app setup
-│   │   └── server.js             # HTTP server entry point
-│   ├── .env.example
-│   ├── .env
-│   └── package.json
-│
-├── README.md
-├── .gitignore
-└── package.json                  # Root runner (concurrently)
-```
-
----
-
 ## 👥 Role-Based Workspaces & Key Features
 
 ### 1. 🛡️ ADMIN WORKSPACE (Indigo Accent)
