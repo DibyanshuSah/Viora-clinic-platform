@@ -71,9 +71,3 @@ npm run dev
 *(You can also use the convenient **Demo Mode** buttons on the Login page or in the Sidebar to switch workspaces with one click).*
 
 ---
-
-## 🔒 Security & RBAC Enforcement
-
-* All endpoints under `/api/v1/admin` and `/api/v1/analytics` are protected with JWT authentication and strict `ADMIN` role middleware (returns `403 Forbidden` for other roles).
-* Doctor Private Notes are filtered out from responses sent to Staff roles.
-* Password hashes are stripped before sending user payloads over the wire.
