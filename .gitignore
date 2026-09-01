@@ -1,9 +1,145 @@
+
+# ------------------------------------------
+# Dependencies
+
+
 node_modules/
-.DS_Store
-*.log
+*/node_modules/
+.pnp
+.pnp.js
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+
+# Environment Variables & Secrets
+# ------------------------------------------
+
 .env
+.env.*
+*.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+
+# Preserve environment template and example files
+!.env.example
+!.env*.example
+!.env.template
+
+
+
+# Build & Production Outputs
+
 dist/
+dist-ssr/
 build/
+out/
+.next/
+.nuxt/
+.output/
+*.tsbuildinfo
+
+
+# Cache & Bundler Directories
+
+.cache/
+.parcel-cache/
+.turbo/
+.vite/
+*.eslintcache
+*.stylelintcache
+*.prettiercache
+
+
+# Database & SQLite Files (Prisma / Local DBs)
+
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite3-journal
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-shm
+prisma/*.db-wal
+backend/prisma/*.db
+backend/prisma/*.db-journal
+backend/prisma/*.db-shm
+backend/prisma/*.db-wal
+
+
+# Logs & Diagnostic Reports
+
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+
+# Testing & Code Coverage
+
 coverage/
-.vscode/
+*.lcov
+.nyc_output/
+cypress/videos/
+cypress/screenshots/
+.playwright/
+
+# IDE & Editor Configurations
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 .idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.sublime-project
+*.sublime-workspace
+
+# Operating System Files
+
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# Temporary & Backup Files
+
+*.tmp
+*.temp
+.tmp/
+.temp/
+*.bak
+*.old
+*.orig
