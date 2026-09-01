@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Calendar, Clock, User, Stethoscope, CheckCircle2, XCircle } from 'lucide-react';
+import { Plus, Calendar, Clock, User, Stethoscope, CheckCircle2, XCircle, Printer, FileText } from 'lucide-react';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import DataTable from '../../components/common/DataTable';
 import StatusBadge from '../../components/common/StatusBadge';
 import Modal from '../../components/common/Modal';
 import ConfirmationModal from '../../components/common/ConfirmationModal';
+import InvoicePreview from '../../components/common/InvoicePreview';
+import RXPreviewModal from '../../components/common/RXPreviewModal';
 import { FormInput, SelectInput } from '../../components/common/FormInput';
 import { LoadingState } from '../../components/common/LoadingState';
 
@@ -18,6 +20,13 @@ const StaffAppointmentsPage = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState(null);
+  
+  // RX and Bill Print Modals
+  const [rxModalOpen, setRxModalOpen] = useState(false);
+  const [selectedAppointmentForRX, setSelectedAppointmentForRX] = useState(null);
+  const [billModalOpen, setBillModalOpen] = useState(false);
+  const [selectedBillForPrint, setSelectedBillForPrint] = useState(null);
+  
   const { showToast } = useToast();
 
   const todayStr = new Date().toISOString().split('T')[0];
@@ -186,7 +195,45 @@ const StaffAppointmentsPage = () => {
     {
       header: 'Actions',
       render: (row) => (
-        <div>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button
+            onClick={() => {
+              setSelectedAppointmentForRX(row);
+              setRxModalOpen(true);
+            }}
+            className="btn btn-doctor btn-sm"
+            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+            title="Preview & Print Prescription (RX)"
+          >
+            <Printer size={13} /> RX
+          </button>
+          
+          <button
+            onClick={async () => {
+              if (row.bill) {
+                setSelectedBillForPrint(row.bill);
+                setBillModalOpen(true);
+              } else {
+                try {
+                  const billRes = await api.getBills({ patientId: row.patientId });
+                  if (billRes.success && billRes.data.length > 0) {
+                    setSelectedBillForPrint(billRes.data[0]);
+                    setBillModalOpen(true);
+                  } else {
+                    showToast('No generated bill found for this patient yet.', 'info');
+                  }
+                } catch {
+                  showToast('No generated bill found for this patient yet.', 'info');
+                }
+              }
+            }}
+            className="btn btn-staff btn-sm"
+            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+            title="Preview & Print Tax Invoice"
+          >
+            <FileText size={13} /> Bill
+          </button>
+
           {row.status !== 'Completed' && row.status !== 'Cancelled' && (
             <button
               onClick={() => {
@@ -194,7 +241,7 @@ const StaffAppointmentsPage = () => {
                 setCancelModalOpen(true);
               }}
               className="btn btn-secondary btn-sm"
-              style={{ color: 'var(--status-danger-text)', padding: '4px 8px' }}
+              style={{ color: 'var(--status-danger-text)', padding: '4px 8px', fontSize: '0.75rem' }}
             >
               Cancel
             </button>
@@ -291,7 +338,7 @@ const StaffAppointmentsPage = () => {
             </select>
           </div>
 
-          {/* Consultation Type: EXACTLY Consultation or Procedure ONLY */}
+          {/* Consultation Type */}
           <div className="form-group">
             <label className="form-label">Consultation Type *</label>
             <select
@@ -300,6 +347,7 @@ const StaffAppointmentsPage = () => {
               onChange={(e) => setFormData({ ...formData, appointmentType: e.target.value })}
             >
               <option value="Consultation">Consultation (Physician Visit)</option>
+              <option value="Follow-up Visit (Zero Bill)">Follow-up Visit (Zero Bill)</option>
               <option value="Procedure">Procedure (Clinical Procedure Only)</option>
             </select>
           </div>
@@ -372,6 +420,80 @@ const StaffAppointmentsPage = () => {
         confirmText="Cancel Appointment"
         isDestructive
       />
+
+      {/* RX PREVIEW MODAL */}
+      <Modal
+        isOpen={rxModalOpen}
+        onClose={() => {
+          setRxModalOpen(false);
+          setSelectedAppointmentForRX(null);
+        }}
+        title="Prescription Slip (RX Preview)"
+        size="xl"
+      >
+        {selectedAppointmentForRX && (
+          <RXPreviewModal
+            prescription={{
+              prescriptionId: selectedAppointmentForRX.prescription?.prescriptionId || `RX-${selectedAppointmentForRX.patientId}`,
+              patientName: selectedAppointmentForRX.patientName,
+              patientId: selectedAppointmentForRX.patientId,
+              patientAge: selectedAppointmentForRX.patientAge,
+              patientGender: selectedAppointmentForRX.patientGender,
+              patientPhone: selectedAppointmentForRX.patientPhone,
+              patientDOB: selectedAppointmentForRX.patientDOB,
+              doctorName: selectedAppointmentForRX.doctorName,
+              doctorSpecialization: selectedAppointmentForRX.doctorSpecialization,
+              doctorQualification: selectedAppointmentForRX.doctorQualification,
+              doctorRegNo: selectedAppointmentForRX.doctorRegNo,
+              consultationDate: selectedAppointmentForRX.date,
+              chiefComplaints: selectedAppointmentForRX.appointmentType === 'Procedure' && selectedAppointmentForRX.procedureName
+                ? `Procedure: ${selectedAppointmentForRX.procedureName}`
+                : (selectedAppointmentForRX.consultation?.chiefComplaint || (selectedAppointmentForRX.medicalHistory && selectedAppointmentForRX.medicalHistory !== 'None' ? `History: ${selectedAppointmentForRX.medicalHistory}` : '')),
+              allergies: selectedAppointmentForRX.allergies,
+              medicalHistory: selectedAppointmentForRX.medicalHistory,
+              medicines: selectedAppointmentForRX.prescription?.medicines || [],
+              procedures: selectedAppointmentForRX.prescription?.procedures || (selectedAppointmentForRX.procedureName ? [selectedAppointmentForRX.procedureName] : []),
+              createdAt: selectedAppointmentForRX.createdAt
+            }}
+            consultation={selectedAppointmentForRX.consultation || {
+              patientName: selectedAppointmentForRX.patientName,
+              patientId: selectedAppointmentForRX.patientId,
+              patientAge: selectedAppointmentForRX.patientAge,
+              patientGender: selectedAppointmentForRX.patientGender,
+              patientPhone: selectedAppointmentForRX.patientPhone,
+              doctorName: selectedAppointmentForRX.doctorName,
+              doctorSpecialization: selectedAppointmentForRX.doctorSpecialization,
+              doctorQualification: selectedAppointmentForRX.doctorQualification,
+              doctorRegNo: selectedAppointmentForRX.doctorRegNo,
+              procedureDetails: selectedAppointmentForRX.procedureName,
+              chiefComplaint: selectedAppointmentForRX.procedureName ? `Procedure: ${selectedAppointmentForRX.procedureName}` : ''
+            }}
+            onClose={() => {
+              setRxModalOpen(false);
+              setSelectedAppointmentForRX(null);
+            }}
+          />
+        )}
+      </Modal>
+
+      {/* INVOICE PREVIEW MODAL */}
+      <Modal
+        isOpen={billModalOpen}
+        onClose={() => {
+          setBillModalOpen(false);
+          setSelectedBillForPrint(null);
+        }}
+        title="VIORA Tax Invoice"
+        size="xl"
+      >
+        <InvoicePreview
+          invoice={selectedBillForPrint}
+          onClose={() => {
+            setBillModalOpen(false);
+            setSelectedBillForPrint(null);
+          }}
+        />
+      </Modal>
     </div>
   );
 };

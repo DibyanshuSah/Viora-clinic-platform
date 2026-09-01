@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, PlayCircle, Clock, CheckCircle2, User, FileText } from 'lucide-react';
+import { Calendar, PlayCircle, Clock, CheckCircle2, User, FileText, Printer } from 'lucide-react';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import DataTable from '../../components/common/DataTable';
 import StatusBadge from '../../components/common/StatusBadge';
+import Modal from '../../components/common/Modal';
+import RXPreviewModal from '../../components/common/RXPreviewModal';
 import { LoadingState } from '../../components/common/LoadingState';
 
 const DoctorAppointmentsPage = () => {
@@ -13,6 +15,8 @@ const DoctorAppointmentsPage = () => {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('All');
+  const [rxModalOpen, setRxModalOpen] = useState(false);
+  const [selectedAppointmentForRX, setSelectedAppointmentForRX] = useState(null);
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -136,22 +140,35 @@ const DoctorAppointmentsPage = () => {
     {
       header: 'Clinical Action',
       render: (row) => (
-        <div>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button
+            onClick={() => {
+              setSelectedAppointmentForRX(row);
+              setRxModalOpen(true);
+            }}
+            className="btn btn-secondary btn-sm"
+            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+            title="Preview & Print Prescription (RX)"
+          >
+            <Printer size={13} /> Print RX
+          </button>
           {row.status === 'Completed' ? (
             <button
               onClick={() => navigate(`/doctor/consultation/${row.appointmentId}`)}
               className="btn btn-secondary btn-sm"
+              style={{ padding: '4px 8px', fontSize: '0.75rem' }}
               title="Review Completed Consultation Record"
             >
-              <FileText size={14} /> View Consultation
+              <FileText size={13} /> View
             </button>
           ) : (
             <button
               onClick={() => handleStartConsultation(row)}
               className="btn btn-doctor btn-sm"
+              style={{ padding: '4px 8px', fontSize: '0.75rem' }}
               title="Open clinical consultation workspace"
             >
-              <PlayCircle size={15} />
+              <PlayCircle size={13} />
               <span>{row.status === 'In Consultation' ? 'Resume' : 'Start'}</span>
             </button>
           )}
@@ -259,6 +276,61 @@ const DoctorAppointmentsPage = () => {
           }
         />
       </div>
+
+      {/* RX PREVIEW MODAL */}
+      <Modal
+        isOpen={rxModalOpen}
+        onClose={() => {
+          setRxModalOpen(false);
+          setSelectedAppointmentForRX(null);
+        }}
+        title="Prescription Slip (RX Preview)"
+        size="xl"
+      >
+        {selectedAppointmentForRX && (
+          <RXPreviewModal
+            prescription={{
+              prescriptionId: selectedAppointmentForRX.prescription?.prescriptionId || `RX-${selectedAppointmentForRX.patientId}`,
+              patientName: selectedAppointmentForRX.patientName,
+              patientId: selectedAppointmentForRX.patientId,
+              patientAge: selectedAppointmentForRX.patientAge,
+              patientGender: selectedAppointmentForRX.patientGender,
+              patientPhone: selectedAppointmentForRX.patientPhone,
+              patientDOB: selectedAppointmentForRX.patientDOB,
+              doctorName: selectedAppointmentForRX.doctorName,
+              doctorSpecialization: selectedAppointmentForRX.doctorSpecialization,
+              doctorQualification: selectedAppointmentForRX.doctorQualification,
+              doctorRegNo: selectedAppointmentForRX.doctorRegNo,
+              consultationDate: selectedAppointmentForRX.date,
+              chiefComplaints: selectedAppointmentForRX.appointmentType === 'Procedure' && selectedAppointmentForRX.procedureName
+                ? `Procedure: ${selectedAppointmentForRX.procedureName}`
+                : (selectedAppointmentForRX.consultation?.chiefComplaint || (selectedAppointmentForRX.medicalHistory && selectedAppointmentForRX.medicalHistory !== 'None' ? `History: ${selectedAppointmentForRX.medicalHistory}` : '')),
+              allergies: selectedAppointmentForRX.allergies,
+              medicalHistory: selectedAppointmentForRX.medicalHistory,
+              medicines: selectedAppointmentForRX.prescription?.medicines || [],
+              procedures: selectedAppointmentForRX.prescription?.procedures || (selectedAppointmentForRX.procedureName ? [selectedAppointmentForRX.procedureName] : []),
+              createdAt: selectedAppointmentForRX.createdAt
+            }}
+            consultation={selectedAppointmentForRX.consultation || {
+              patientName: selectedAppointmentForRX.patientName,
+              patientId: selectedAppointmentForRX.patientId,
+              patientAge: selectedAppointmentForRX.patientAge,
+              patientGender: selectedAppointmentForRX.patientGender,
+              patientPhone: selectedAppointmentForRX.patientPhone,
+              doctorName: selectedAppointmentForRX.doctorName,
+              doctorSpecialization: selectedAppointmentForRX.doctorSpecialization,
+              doctorQualification: selectedAppointmentForRX.doctorQualification,
+              doctorRegNo: selectedAppointmentForRX.doctorRegNo,
+              procedureDetails: selectedAppointmentForRX.procedureName,
+              chiefComplaint: selectedAppointmentForRX.procedureName ? `Procedure: ${selectedAppointmentForRX.procedureName}` : ''
+            }}
+            onClose={() => {
+              setRxModalOpen(false);
+              setSelectedAppointmentForRX(null);
+            }}
+          />
+        )}
+      </Modal>
     </div>
   );
 };

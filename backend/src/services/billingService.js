@@ -70,6 +70,10 @@ class BillingService {
       
       docCutConsultation = doctor.consultationRates.doctorCut || 0;
       clinicShareConsultation = doctor.consultationRates.clinicShare || (finalConsultationFee - docCutConsultation);
+    } else if (consultationType === 'Follow-up Visit (Zero Bill)' || consultationType === 'Follow-up Visit') {
+      finalConsultationFee = 0;
+      docCutConsultation = 0;
+      clinicShareConsultation = 0;
     }
 
     // Process Procedures
@@ -198,6 +202,8 @@ class BillingService {
     const patient = db.patients.find(p => p.patientId === bill.patientId);
     const doctor = db.doctors.find(d => d.doctorId === bill.doctorId);
     const appointment = db.appointments.find(a => a.appointmentId === bill.appointmentId);
+    const consultation = db.consultations.find(c => c.appointmentId === bill.appointmentId || (c.patientId === bill.patientId && c.doctorId === bill.doctorId && c.createdAt?.startsWith(bill.createdAt?.split('T')[0])));
+    const prescription = consultation?.prescriptionId ? db.prescriptions.find(pr => pr.prescriptionId === consultation.prescriptionId) : null;
 
     return {
       ...bill,
@@ -206,11 +212,17 @@ class BillingService {
       patientGender: patient ? patient.gender : null,
       patientPhone: patient ? patient.phone : null,
       patientAddress: patient ? `${patient.address}, ${patient.city}` : '',
+      patientDOB: patient ? patient.dateOfBirth : null,
+      allergies: patient ? patient.allergies : 'None',
+      medicalHistory: patient ? patient.medicalHistory : 'None',
       doctorName: doctor ? doctor.name : 'Unknown Doctor',
       doctorSpecialization: doctor ? doctor.specialization : '',
+      doctorQualification: doctor ? doctor.qualification : '',
       doctorRegNo: doctor ? doctor.registrationNumber : '',
       appointmentDate: appointment ? appointment.date : null,
       appointmentTime: appointment ? appointment.time : null,
+      consultation: consultation || null,
+      prescription: prescription || null,
       clinic: db.clinicProfile
     };
   }

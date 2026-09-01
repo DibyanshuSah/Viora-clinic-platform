@@ -595,7 +595,7 @@ p {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 5mm 8mm;
+    margin: 4mm 6mm;
   }
 
   html, body {
@@ -622,7 +622,7 @@ p {
     background: #FFFFFF !important;
   }
 
-  /* Completely hide app navigation, headers, footers, toolbars, buttons, toast */
+  /* Completely hide app navigation, headers, footers, toolbars, buttons, toast, backdrop */
   .no-print,
   .app-sidebar,
   .top-header,
@@ -630,7 +630,9 @@ p {
   .demo-mode-banner,
   .toast-container,
   .modal-header,
-  .modal-footer {
+  .modal-footer,
+  .confirmation-modal-backdrop,
+  .sidebar-backdrop {
     display: none !important;
   }
 
@@ -643,6 +645,8 @@ p {
     backdrop-filter: none !important;
     padding: 0 !important;
     margin: 0 !important;
+    width: 100% !important;
+    height: auto !important;
     z-index: auto !important;
   }
 
@@ -670,42 +674,61 @@ p {
     background: transparent !important;
   }
 
-  /* RX Document Print Styles */
+  /* EXACT 1-PAGE RX DOCUMENT PRINT RULES */
   #viora-rx-document {
     display: flex !important;
     flex-direction: column !important;
     width: 100% !important;
     max-width: 100% !important;
+    max-height: 280mm !important;
     padding: 0 !important;
-    margin: 0 !important;
+    margin: 0 auto !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
     background: #FFFFFF !important;
+    box-sizing: border-box !important;
   }
 
-  /* Tax Invoice Document Print Styles */
+  /* EXACT 1-PAGE TAX INVOICE PRINT RULES */
   #viora-invoice-document {
     display: block !important;
     width: 100% !important;
     max-width: 100% !important;
-    padding: 16px !important;
-    margin: 0 !important;
+    max-height: 280mm !important;
+    padding: 16px 20px !important;
+    margin: 0 auto !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
     background: #FFFFFF !important;
+    box-sizing: border-box !important;
   }
 
   .rx-clinical-box {
     border: 2px solid #000000 !important;
     display: flex !important;
+    min-height: 720px !important;
+    height: 750px !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    box-sizing: border-box !important;
   }
 
   .rx-left-col {
     border-right: 2px solid #000000 !important;
     width: 28% !important;
+    box-sizing: border-box !important;
   }
 
   .rx-right-col {
     width: 72% !important;
+    box-sizing: border-box !important;
   }
 }

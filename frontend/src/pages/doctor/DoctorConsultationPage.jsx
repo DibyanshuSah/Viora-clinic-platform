@@ -7,12 +7,18 @@ import {
   FileText,
   AlertTriangle,
   ArrowLeft,
-  Activity
+  Activity,
+  Printer,
+  Plus,
+  Trash2,
+  Pill
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useClinic } from '../../context/ClinicContext';
 import { useToast } from '../../context/ToastContext';
+import Modal from '../../components/common/Modal';
+import RXPreviewModal from '../../components/common/RXPreviewModal';
 import { LoadingState } from '../../components/common/LoadingState';
 
 const DoctorConsultationPage = () => {
@@ -25,6 +31,7 @@ const DoctorConsultationPage = () => {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [rxModalOpen, setRxModalOpen] = useState(false);
 
   // Active Patient & Appointment info
   const [patient, setPatient] = useState(null);
@@ -44,6 +51,16 @@ const DoctorConsultationPage = () => {
   const [privateNotes, setPrivateNotes] = useState('');
   const [advice, setAdvice] = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
+
+  // Prescribed Medicines State
+  const [medicines, setMedicines] = useState([]);
+  const [newMed, setNewMed] = useState({
+    name: '',
+    dosage: '1 Tablet',
+    frequency: '1-0-1',
+    duration: '5 Days',
+    instructions: 'After Food'
+  });
 
   // Deduplicate previous visits by date (YYYY-MM-DD), keeping only the latest updated record for each day
   const displayConsultations = React.useMemo(() => {
@@ -110,6 +127,9 @@ const DoctorConsultationPage = () => {
             if (existing.prescription) {
               setAdvice(existing.prescription.advice || '');
               setFollowUpDate(existing.prescription.followUpDate || '');
+              if (Array.isArray(existing.prescription.medicines)) {
+                setMedicines(existing.prescription.medicines);
+              }
             }
           }
         }
@@ -133,7 +153,7 @@ const DoctorConsultationPage = () => {
 
     try {
       setSaving(true);
-      const doctorId = user?.referenceId || 'DOC-101';
+      const doctorId = user?.referenceId || appointment?.doctorId || '';
 
       const payload = {
         consultationId: consultationId || undefined,
@@ -148,7 +168,7 @@ const DoctorConsultationPage = () => {
         treatment,
         procedureDetails,
         privateNotes,
-        medicines: [],
+        medicines,
         advice,
         followUpDate,
         status: 'Completed'
@@ -241,6 +261,15 @@ const DoctorConsultationPage = () => {
 
         {/* CLINICAL ACTIONS */}
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={() => setRxModalOpen(true)}
+            className="btn btn-secondary btn-sm"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            title="Preview & Print Prescription"
+          >
+            <Printer size={15} /> Preview & Print RX
+          </button>
           <button
             onClick={() => handleSave(true)}
             className="btn btn-doctor btn-sm"
@@ -634,7 +663,172 @@ const DoctorConsultationPage = () => {
             </div>
           </div>
 
-          {/* CLINICAL ADVICE & FOLLOW-UP */}
+          {/* PRESCRIBED MEDICATIONS BUILDER (℞) */}
+          <div style={{ paddingTop: '8px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.92rem', fontWeight: 800, color: 'var(--role-doctor-primary)' }}>
+                <Pill size={16} />
+                <span>Prescribed Medications (℞)</span>
+              </div>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                {medicines.length} medicine(s) added
+              </span>
+            </div>
+
+            {/* QUICK PRESCRIBE CHIPS */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Quick Add:</span>
+              {[
+                { name: 'Tab. Augmentin 625mg', dosage: '1 Tablet', freq: '1-0-1', dur: '5 Days', inst: 'After Food' },
+                { name: 'Tab. Dolo 650mg', dosage: '1 Tablet', freq: 'SOS', dur: '3 Days', inst: 'After Food for Fever' },
+                { name: 'Cap. Pantocid 40mg', dosage: '1 Capsule', freq: '1-0-0', dur: '5 Days', inst: 'Empty Stomach' },
+                { name: 'Syrup Ascoril-D', dosage: '10 ml', freq: '1-1-1', dur: '5 Days', inst: 'After Food' },
+                { name: 'Tab. Azithromycin 500mg', dosage: '1 Tablet', freq: '1-0-0', dur: '3 Days', inst: 'After Food' },
+                { name: 'Tab. Montair-LC', dosage: '1 Tablet', freq: '0-0-1', dur: '7 Days', inst: 'At Bedtime' }
+              ].map((chip, idx) => (
+                <button
+                  type="button"
+                  key={idx}
+                  onClick={() => {
+                    if (!medicines.some(m => m.name === chip.name)) {
+                      setMedicines([...medicines, { name: chip.name, dosage: chip.dosage, frequency: chip.freq, duration: chip.dur, instructions: chip.inst }]);
+                    }
+                  }}
+                  style={{
+                    backgroundColor: '#F1F5F9',
+                    border: '1px solid #CBD5E1',
+                    borderRadius: '12px',
+                    padding: '2px 8px',
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    color: '#334155',
+                    cursor: 'pointer'
+                  }}
+                >
+                  + {chip.name}
+                </button>
+              ))}
+            </div>
+
+            {/* ADD MEDICINE INPUT ROW */}
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1.2fr auto', gap: '6px', alignItems: 'end' }}>
+              <div>
+                <label style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)' }}>Medicine Name</label>
+                <input
+                  className="form-input"
+                  style={{ padding: '6px 8px', fontSize: '0.78rem' }}
+                  placeholder="e.g. Tab. Amoxicillin 500mg"
+                  value={newMed.name}
+                  onChange={(e) => setNewMed({ ...newMed, name: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (newMed.name.trim()) {
+                        setMedicines([...medicines, { ...newMed, name: newMed.name.trim() }]);
+                        setNewMed({ name: '', dosage: '1 Tablet', frequency: '1-0-1', duration: '5 Days', instructions: 'After Food' });
+                      }
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)' }}>Dosage</label>
+                <input
+                  className="form-input"
+                  style={{ padding: '6px 8px', fontSize: '0.78rem' }}
+                  placeholder="1 Tab / 5ml"
+                  value={newMed.dosage}
+                  onChange={(e) => setNewMed({ ...newMed, dosage: e.target.value })}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)' }}>Frequency</label>
+                <input
+                  className="form-input"
+                  style={{ padding: '6px 8px', fontSize: '0.78rem' }}
+                  placeholder="1-0-1 / SOS"
+                  value={newMed.frequency}
+                  onChange={(e) => setNewMed({ ...newMed, frequency: e.target.value })}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)' }}>Duration</label>
+                <input
+                  className="form-input"
+                  style={{ padding: '6px 8px', fontSize: '0.78rem' }}
+                  placeholder="5 Days"
+                  value={newMed.duration}
+                  onChange={(e) => setNewMed({ ...newMed, duration: e.target.value })}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)' }}>Instructions</label>
+                <input
+                  className="form-input"
+                  style={{ padding: '6px 8px', fontSize: '0.78rem' }}
+                  placeholder="After Food"
+                  value={newMed.instructions}
+                  onChange={(e) => setNewMed({ ...newMed, instructions: e.target.value })}
+                />
+              </div>
+              <button
+                type="button"
+                className="btn btn-doctor btn-sm"
+                style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+                onClick={() => {
+                  if (!newMed.name.trim()) {
+                    showToast('Please enter a medicine name', 'warning');
+                    return;
+                  }
+                  setMedicines([...medicines, { ...newMed, name: newMed.name.trim() }]);
+                  setNewMed({ name: '', dosage: '1 Tablet', frequency: '1-0-1', duration: '5 Days', instructions: 'After Food' });
+                }}
+              >
+                <Plus size={14} /> Add
+              </button>
+            </div>
+
+            {/* MEDICINES TABLE LIST */}
+            {medicines.length > 0 && (
+              <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                      <th style={{ textAlign: 'left', padding: '6px 8px', color: '#475569', width: '35%' }}>Medicine</th>
+                      <th style={{ textAlign: 'center', padding: '6px 8px', color: '#475569', width: '15%' }}>Dosage</th>
+                      <th style={{ textAlign: 'center', padding: '6px 8px', color: '#475569', width: '15%' }}>Frequency</th>
+                      <th style={{ textAlign: 'center', padding: '6px 8px', color: '#475569', width: '15%' }}>Duration</th>
+                      <th style={{ textAlign: 'left', padding: '6px 8px', color: '#475569', width: '15%' }}>Instructions</th>
+                      <th style={{ textAlign: 'center', padding: '6px 8px', width: '5%' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {medicines.map((med, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                        <td style={{ padding: '6px 8px', fontWeight: 700, color: 'var(--text-main)' }}>
+                          {idx + 1}. {med.name}
+                        </td>
+                        <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748B' }}>{med.dosage}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 700, color: 'var(--role-doctor-primary)' }}>{med.frequency}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>{med.duration}</td>
+                        <td style={{ padding: '6px 8px', color: '#475569' }}>{med.instructions}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => setMedicines(medicines.filter((_, i) => i !== idx))}
+                            style={{ background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '2px' }}
+                            title="Remove Medicine"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
           <div className="form-grid-2" style={{ paddingTop: '8px', borderTop: '1px solid var(--border-subtle)' }}>
             <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">General Advice / Dietary / Precautions</label>
@@ -714,6 +908,62 @@ const DoctorConsultationPage = () => {
           </button>
         </div>
       </div>
+
+      {/* RX PREVIEW MODAL */}
+      <Modal
+        isOpen={rxModalOpen}
+        onClose={() => setRxModalOpen(false)}
+        title="Prescription Slip (RX Preview)"
+        size="xl"
+      >
+        <RXPreviewModal
+          prescription={{
+            prescriptionId: consultationId ? `RX-${consultationId}` : `RX-${patient?.patientId || 'CONS'}`,
+            patientName: patient?.name,
+            patientId: patient?.patientId,
+            patientAge: patient?.age,
+            patientGender: patient?.gender,
+            patientPhone: patient?.phone,
+            patientDOB: patient?.dateOfBirth,
+            doctorName: user?.name || appointment?.doctorName || 'Attending Physician',
+            doctorSpecialization: user?.profileDetails?.specialization || appointment?.doctorSpecialization || '',
+            doctorQualification: user?.profileDetails?.qualification || appointment?.doctorQualification || '',
+            doctorRegNo: user?.profileDetails?.registrationNumber || appointment?.doctorRegNo || '',
+            consultationDate: appointment?.date || new Date().toISOString().split('T')[0],
+            chiefComplaints: chiefComplaint || (appointment?.appointmentType === 'Procedure' && appointment?.procedureName ? `Procedure: ${appointment.procedureName}` : ''),
+            diagnosis,
+            vitals,
+            examination,
+            allergies: patient?.allergies,
+            medicalHistory: patient?.medicalHistory,
+            medicines,
+            procedures: procedureDetails ? [procedureDetails] : [],
+            advice,
+            followUpDate,
+            createdAt: new Date().toISOString()
+          }}
+          consultation={{
+            patientName: patient?.name,
+            patientId: patient?.patientId,
+            patientAge: patient?.age,
+            patientGender: patient?.gender,
+            patientPhone: patient?.phone,
+            doctorName: user?.name || appointment?.doctorName || 'Attending Physician',
+            doctorSpecialization: user?.profileDetails?.specialization || appointment?.doctorSpecialization || '',
+            doctorQualification: user?.profileDetails?.qualification || appointment?.doctorQualification || '',
+            doctorRegNo: user?.profileDetails?.registrationNumber || appointment?.doctorRegNo || '',
+            procedureDetails,
+            chiefComplaint,
+            diagnosis,
+            vitals,
+            examination,
+            medicines,
+            advice,
+            followUpDate
+          }}
+          onClose={() => setRxModalOpen(false)}
+        />
+      </Modal>
     </div>
   );
 };

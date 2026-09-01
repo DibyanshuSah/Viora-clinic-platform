@@ -31,12 +31,40 @@ const usersSeed = [
     email: "admin@vioraclinic.com",
     phone: "+91 98800 11223",
     status: "Active"
+  },
+  {
+    id: "usr-staff-1",
+    username: "staff@reception",
+    password: hashPassword("staff@123"),
+    role: "STAFF",
+    name: "Pooja Sharma",
+    email: "pooja.reception@vioraclinic.com",
+    phone: "+91 98450 88991",
+    referenceId: "STF-201",
+    status: "Active"
   }
 ];
 
 const doctorsSeed = [];
 
-const staffSeed = [];
+const staffSeed = [
+  {
+    staffId: "STF-201",
+    userId: "usr-staff-1",
+    name: "Pooja Sharma",
+    phone: "+91 98450 88991",
+    email: "pooja.reception@vioraclinic.com",
+    username: "staff@reception",
+    shift: "Morning",
+    workingDays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    startTime: "08:00",
+    endTime: "16:00",
+    scheduledHours: 48,
+    workedHours: 46,
+    attendance: "Present",
+    status: "Active"
+  }
+];
 
 const proceduresSeed = [
   {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Printer, Download, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useClinic } from '../../context/ClinicContext';
+import { printDocument } from '../../utils/printUtils';
 
 const InvoicePreview = ({ invoice, onClose, onPrint }) => {
   const { clinic } = useClinic();
@@ -11,7 +12,7 @@ const InvoicePreview = ({ invoice, onClose, onPrint }) => {
     if (onPrint) {
       onPrint();
     } else {
-      window.print();
+      printDocument('viora-invoice-document', `Invoice - ${invoice.invoiceNumber || 'Tax Invoice'}`);
     }
   };
 
@@ -55,11 +56,18 @@ const InvoicePreview = ({ invoice, onClose, onPrint }) => {
         style={{
           border: '1px solid #E2E8F0',
           borderRadius: '8px',
-          padding: '32px',
+          padding: '24px',
           backgroundColor: '#FFFFFF',
           fontFamily: 'var(--font-sans)',
           maxWidth: '800px',
-          margin: '0 auto'
+          margin: '0 auto',
+          boxSizing: 'border-box',
+          pageBreakInside: 'avoid',
+          breakInside: 'avoid',
+          pageBreakAfter: 'avoid',
+          breakAfter: 'avoid',
+          pageBreakBefore: 'avoid',
+          breakBefore: 'avoid'
         }}
       >
         {/* CLINIC BRAND HEADER */}
@@ -226,6 +234,20 @@ const InvoicePreview = ({ invoice, onClose, onPrint }) => {
                   <td style={{ padding: '12px', textAlign: 'right' }}>₹{invoice.consultationFee.toLocaleString()}</td>
                   <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>
                     ₹{invoice.consultationFee.toLocaleString()}
+                  </td>
+                </tr>
+              )}
+
+              {/* Follow-up Visit (Zero Bill) row */}
+              {(invoice.consultationType === 'Follow-up Visit (Zero Bill)' || invoice.consultationType === 'Follow-up Visit') && (
+                <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F0FDF4' }}>
+                  <td style={{ padding: '12px', fontWeight: 600, color: '#166534' }}>
+                    Follow-up Visit (Zero Bill) &bull; {invoice.doctorSpecialization || 'General'}
+                  </td>
+                  <td style={{ padding: '12px', textAlign: 'center' }}>1</td>
+                  <td style={{ padding: '12px', textAlign: 'right' }}>₹0</td>
+                  <td style={{ padding: '12px', textAlign: 'right', fontWeight: 700, color: '#166534' }}>
+                    ₹0
                   </td>
                 </tr>
               )}

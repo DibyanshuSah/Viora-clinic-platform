@@ -25,8 +25,15 @@ class ConsultationService {
         patientName: patient ? patient.name : 'Unknown Patient',
         patientAge: patient ? patient.age : null,
         patientGender: patient ? patient.gender : null,
+        patientPhone: patient ? patient.phone : null,
+        patientDOB: patient ? patient.dateOfBirth : null,
+        patientAddress: patient ? patient.address : '',
+        allergies: patient ? patient.allergies : 'None',
+        medicalHistory: patient ? patient.medicalHistory : 'None',
         doctorName: doctor ? doctor.name : 'Unknown Doctor',
         doctorSpecialization: doctor ? doctor.specialization : '',
+        doctorQualification: doctor ? doctor.qualification : '',
+        doctorRegNo: doctor ? doctor.registrationNumber : '',
         prescription: prescription || null
       };
 
@@ -76,8 +83,13 @@ class ConsultationService {
       patientAge: patient ? patient.age : null,
       patientGender: patient ? patient.gender : null,
       patientPhone: patient ? patient.phone : null,
+      patientDOB: patient ? patient.dateOfBirth : null,
+      patientAddress: patient ? patient.address : '',
+      allergies: patient ? patient.allergies : 'None',
+      medicalHistory: patient ? patient.medicalHistory : 'None',
       doctorName: doctor ? doctor.name : 'Unknown Doctor',
       doctorSpecialization: doctor ? doctor.specialization : '',
+      doctorQualification: doctor ? doctor.qualification : '',
       doctorRegNo: doctor ? doctor.registrationNumber : '',
       prescription: prescription || null
     };

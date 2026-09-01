@@ -229,9 +229,10 @@ const StaffRegistrationPage = () => {
     patientGender: transactionResult.patient?.gender || patientData.gender,
     patientPhone: transactionResult.patient?.phone || patientData.phone,
     patientDOB: transactionResult.patient?.dateOfBirth || patientData.dateOfBirth,
-    doctorName: selectedDoctorObj?.name || 'Dr. Vikram Malhotra',
-    doctorSpecialization: selectedDoctorObj?.specialization || 'General Physician & Diabetologist',
-    doctorRegNo: selectedDoctorObj?.registrationNumber || 'KMC-42910',
+    doctorName: selectedDoctorObj?.name || transactionResult.bill?.doctorName || 'Attending Physician',
+    doctorSpecialization: selectedDoctorObj?.specialization || transactionResult.bill?.doctorSpecialization || '',
+    doctorQualification: selectedDoctorObj?.qualification || transactionResult.bill?.doctorQualification || '',
+    doctorRegNo: selectedDoctorObj?.registrationNumber || transactionResult.bill?.doctorRegNo || '',
     consultationDate: appointmentData.date || todayStr,
     chiefComplaints: appointmentData.appointmentType === 'Procedure' && appointmentData.procedureName
       ? `Procedure: ${appointmentData.procedureName}`
@@ -247,6 +248,90 @@ const StaffRegistrationPage = () => {
     <div>
       {/* BACKGROUND REGISTRATION WIZARD (HIDDEN IN PRINT) */}
       <div className="no-print" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
+        {/* RECENT TRANSACTION BANNER (REMAINS ACCESSIBLE TO PRINT RX OR BILL EVEN IF PREVIEW MODAL IS CLOSED) */}
+        {transactionResult && (
+          <div
+            className="v-card"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '16px 20px',
+              backgroundColor: '#F0FDF4',
+              borderColor: '#BBF7D0',
+              color: '#166534',
+              gap: '12px',
+              flexWrap: 'wrap'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <CheckCircle2 size={24} color="#16A34A" />
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#14532D' }}>
+                  Transaction Completed for {transactionResult.patient?.name} ({transactionResult.patient?.patientId})
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#166534' }}>
+                  Queue: <strong>{transactionResult.appointment?.queueNumber}</strong> &bull; Invoice: <strong>{transactionResult.bill?.invoiceNumber}</strong> &bull; Doctor: <strong>{selectedDoctorObj?.name}</strong> (Reg No: {selectedDoctorObj?.registrationNumber || 'KMC-42910'})
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setPrintTab('rx');
+                  setInvoiceModalOpen(true);
+                }}
+                className="btn btn-doctor btn-sm"
+              >
+                <Printer size={15} /> Print RX
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPrintTab('bill');
+                  setInvoiceModalOpen(true);
+                }}
+                className="btn btn-staff btn-sm"
+              >
+                <Printer size={15} /> Print Bill
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTransactionResult(null);
+                  setCurrentStep(1);
+                  setPatientData({
+                    name: '',
+                    dateOfBirth: '',
+                    age: '',
+                    gender: 'Female',
+                    phone: '',
+                    email: '',
+                    address: '',
+                    city: 'Bengaluru',
+                    state: 'Karnataka',
+                    pinCode: '',
+                    allergies: 'None',
+                    medicalHistory: 'None',
+                    emergencyContact: ''
+                  });
+                }}
+                className="btn btn-secondary btn-sm"
+              >
+                <Plus size={15} /> Register Another
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/staff/appointments')}
+                className="btn btn-secondary btn-sm"
+              >
+                View Appointments &rarr;
+              </button>
+            </div>
+          </div>
+        )}
         {/* WORKFLOW STEP INDICATOR */}
         <div
           className="v-card"
@@ -511,7 +596,7 @@ const StaffRegistrationPage = () => {
                 </select>
               </div>
 
-              {/* Consultation Type: EXACTLY Consultation or Procedure ONLY */}
+              {/* Consultation Type */}
               <div className="form-group">
                 <label className="form-label">
                   Consultation Type <span className="required">*</span>
@@ -519,9 +604,19 @@ const StaffRegistrationPage = () => {
                 <select
                   className="form-select"
                   value={appointmentData.appointmentType}
-                  onChange={(e) => setAppointmentData({ ...appointmentData, appointmentType: e.target.value })}
+                  onChange={(e) => {
+                    const newType = e.target.value;
+                    setAppointmentData({ ...appointmentData, appointmentType: newType });
+                    if (newType === 'Follow-up Visit (Zero Bill)') {
+                      setBillingProcedures([]);
+                      setDiscount(0);
+                      setTax(0);
+                      setPaidAmount(0);
+                    }
+                  }}
                 >
                   <option value="Consultation">Consultation (Physician Visit)</option>
+                  <option value="Follow-up Visit (Zero Bill)">Follow-up Visit (Zero Bill)</option>
                   <option value="Procedure">Procedure (Clinical Procedure Only)</option>
                 </select>
               </div>
@@ -688,6 +783,19 @@ const StaffRegistrationPage = () => {
                         <td>1</td>
                         <td>₹{consultationFee}</td>
                         <td style={{ fontWeight: 700 }}>₹{consultationFee}</td>
+                        <td>-</td>
+                      </tr>
+                    )}
+
+                    {/* Follow-up Visit (Zero Bill) Line */}
+                    {appointmentData.appointmentType === 'Follow-up Visit (Zero Bill)' && (
+                      <tr style={{ backgroundColor: '#F0FDF4' }}>
+                        <td style={{ fontWeight: 600, color: '#166534' }}>
+                          Follow-up Visit (Zero Bill)
+                        </td>
+                        <td>1</td>
+                        <td>₹0</td>
+                        <td style={{ fontWeight: 700, color: '#166534' }}>₹0</td>
                         <td>-</td>
                       </tr>
                     )}

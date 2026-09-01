@@ -1,6 +1,7 @@
 import React from 'react';
 import { Printer, X } from 'lucide-react';
 import { useClinic } from '../../context/ClinicContext';
+import { printDocument } from '../../utils/printUtils';
 
 const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
   const { clinic } = useClinic();
@@ -17,9 +18,10 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
   const patientPhone = rx.patientPhone || cons.patientPhone || 'N/A';
   const patientDOB = rx.patientDOB || cons.patientDOB || '';
 
-  const doctorName = rx.doctorName || cons.doctorName || 'Dr. Vikram Malhotra';
-  const doctorSpecialization = rx.doctorSpecialization || cons.doctorSpecialization || 'General Physician & Diabetologist';
-  const doctorRegNo = rx.doctorRegNo || cons.doctorRegNo || 'KMC-42910';
+  const doctorName = rx.doctorName || cons.doctorName || rx.doctor?.name || cons.doctor?.name || 'Attending Physician';
+  const doctorSpecialization = rx.doctorSpecialization || cons.doctorSpecialization || rx.doctor?.specialization || cons.doctor?.specialization || '';
+  const doctorQualification = rx.doctorQualification || cons.doctorQualification || rx.doctor?.qualification || cons.doctor?.qualification || '';
+  const doctorRegNo = rx.doctorRegNo || cons.doctorRegNo || rx.doctorRegistrationNumber || cons.doctorRegistrationNumber || rx.registrationNumber || rx.doctor?.registrationNumber || cons.doctor?.registrationNumber || '';
   const rawDate = rx.consultationDate || rx.createdAt || cons.date || Date.now();
 
   const formatDate = (dateInput) => {
@@ -35,14 +37,13 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
 
   const consultationDateFormatted = formatDate(rawDate);
   const formattedDOB = patientDOB ? formatDate(patientDOB) : 'N/A';
-
   const chiefComplaintsText = rx.chiefComplaints || cons.chiefComplaint || (cons.procedureDetails ? `Procedure: ${cons.procedureDetails}` : '');
 
   const handlePrint = () => {
     if (onPrint) {
       onPrint();
     } else {
-      window.print();
+      printDocument('viora-rx-document', `RX - ${patientName} (${patientId})`);
     }
   };
 
@@ -94,8 +95,13 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
           display: 'flex',
           flexDirection: 'column',
           gap: '6px',
+          boxSizing: 'border-box',
           pageBreakInside: 'avoid',
-          breakInside: 'avoid'
+          breakInside: 'avoid',
+          pageBreakAfter: 'avoid',
+          breakAfter: 'avoid',
+          pageBreakBefore: 'avoid',
+          breakBefore: 'avoid'
         }}
       >
         {/* 1. CLINIC & DOCTOR HEADER BOX */}
@@ -167,15 +173,20 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
           </div>
 
           {/* RIGHT: ATTENDING PHYSICIAN DETAILS */}
-          <div style={{ textAlign: 'right', minWidth: '200px' }}>
+          <div style={{ textAlign: 'right', minWidth: '220px' }}>
             <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#0F172A', lineHeight: 1.2 }}>
               {doctorName}
             </div>
+            {doctorQualification ? (
+              <div style={{ fontSize: '0.68rem', color: '#475569', fontWeight: 600, marginTop: '1px' }}>
+                {doctorQualification}
+              </div>
+            ) : null}
             <div style={{ fontSize: '0.74rem', color: '#0284C7', fontWeight: 700, marginTop: '1px' }}>
               {doctorSpecialization}
             </div>
-            <div style={{ fontSize: '0.68rem', color: '#475569', marginTop: '1px', fontWeight: 600 }}>
-              Reg. No: {doctorRegNo}
+            <div style={{ fontSize: '0.68rem', color: '#475569', marginTop: '1px', fontWeight: 700 }}>
+              Doctor Reg. No: <span style={{ color: '#0F172A', fontWeight: 800 }}>{doctorRegNo || 'N/A'}</span>
             </div>
             <div style={{ fontSize: '0.68rem', color: '#334155', marginTop: '1px', fontWeight: 600 }}>
               Consultation Date: {consultationDateFormatted}
@@ -254,7 +265,7 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
           </div>
         </div>
 
-        {/* 3. TWO-COLUMN CLINICAL SECTION (CHIEF COMPLAINTS | RX) WITH PROMINENT SOLID PRINTABLE DIVIDER */}
+        {/* 3. TWO-COLUMN CLINICAL SECTION (CHIEF COMPLAINTS | RX) WITH SOLID PRINTABLE DIVIDER */}
         <div
           className="rx-clinical-box"
           style={{
@@ -263,7 +274,7 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
             overflow: 'hidden',
             display: 'flex',
             minHeight: '720px',
-            height: '740px',
+            height: '750px',
             pageBreakInside: 'avoid',
             breakInside: 'avoid',
             backgroundColor: '#FFFFFF',
@@ -271,7 +282,7 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
             boxSizing: 'border-box'
           }}
         >
-          {/* LEFT COLUMN: CHIEF COMPLAINTS */}
+          {/* LEFT COLUMN: CHIEF COMPLAINTS (BLANK PAD FOR DOCTOR TO WRITE CLINICAL NOTES/VITALS) */}
           <div
             className="rx-left-col"
             style={{
@@ -293,7 +304,8 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
                 fontWeight: 800,
                 fontSize: '0.78rem',
                 letterSpacing: '0.05em',
-                color: '#000000'
+                color: '#000000',
+                textTransform: 'uppercase'
               }}
             >
               CHIEF COMPLAINTS
@@ -301,7 +313,7 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
 
             <div
               style={{
-                padding: '12px',
+                padding: '10px',
                 flex: 1,
                 display: 'flex',
                 flexDirection: 'column',
@@ -311,7 +323,7 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
               {chiefComplaintsText ? (
                 <div
                   style={{
-                    fontSize: '0.75rem',
+                    fontSize: '0.74rem',
                     fontWeight: 700,
                     color: '#0F172A',
                     backgroundColor: '#F8FAFC',
@@ -324,11 +336,11 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
                   {chiefComplaintsText}
                 </div>
               ) : null}
-              {/* Entire remaining area is completely blank white space */}
+              {/* Entire remaining area is clean blank white space for writing with pen */}
             </div>
           </div>
 
-          {/* RIGHT COLUMN: RX */}
+          {/* RIGHT COLUMN: RX (BLANK PRESCRIPTION PAD FOR DOCTOR TO WRITE MEDICINES) */}
           <div
             className="rx-right-col"
             style={{
@@ -349,7 +361,8 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
                 fontWeight: 800,
                 fontSize: '0.85rem',
                 letterSpacing: '0.08em',
-                color: '#0284C7'
+                color: '#0284C7',
+                textTransform: 'uppercase'
               }}
             >
               RX
@@ -377,7 +390,7 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
               >
                 ℞
               </div>
-              {/* Entire remaining area is completely blank white space */}
+              {/* Entire remaining area is clean blank white space for writing with pen */}
             </div>
           </div>
         </div>
@@ -410,7 +423,7 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
           {/* RIGHT: DEDICATED PHYSICAL SIGNATURE CLEARANCE & SIGNATURE LINE */}
           <div style={{ textAlign: 'center', minWidth: '200px' }}>
             {/* Generous signing space for the doctor to sign with pen */}
-            <div style={{ height: '55px' }} />
+            <div style={{ height: '38px' }} />
             <div
               style={{
                 width: '180px',
@@ -421,6 +434,11 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
             <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#0F172A', lineHeight: 1.2 }}>
               {doctorName}
             </div>
+            {doctorRegNo ? (
+              <div style={{ fontSize: '0.66rem', color: '#64748B', fontWeight: 600, marginTop: '1px' }}>
+                Reg. No: {doctorRegNo}
+              </div>
+            ) : null}
             <div style={{ fontSize: '0.66rem', color: '#64748B', fontWeight: 600, marginTop: '1px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               Authorized Signatory
             </div>

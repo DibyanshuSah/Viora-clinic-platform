@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, CreditCard, Printer, Eye, Trash2, IndianRupee, FileText, CheckCircle2 } from 'lucide-react';
+import { Plus, CreditCard, Printer, Eye, Trash2, IndianRupee, FileText, CheckCircle2, Stethoscope } from 'lucide-react';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import DataTable from '../../components/common/DataTable';
 import StatusBadge from '../../components/common/StatusBadge';
 import Modal from '../../components/common/Modal';
 import InvoicePreview from '../../components/common/InvoicePreview';
+import RXPreviewModal from '../../components/common/RXPreviewModal';
 import { FormInput, SelectInput } from '../../components/common/FormInput';
 import { LoadingState } from '../../components/common/LoadingState';
 
@@ -18,6 +19,11 @@ const StaffBillingPage = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+  
+  // RX Print Modal State
+  const [rxModalOpen, setRxModalOpen] = useState(false);
+  const [selectedRXForPrint, setSelectedRXForPrint] = useState(null);
+  
   const { showToast } = useToast();
 
   const [formData, setFormData] = useState({
@@ -203,16 +209,63 @@ const StaffBillingPage = () => {
     {
       header: 'Actions',
       render: (row) => (
-        <div style={{ display: 'flex', gap: '6px' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           <button
             onClick={() => {
               setSelectedInvoice(row);
               setInvoiceModalOpen(true);
             }}
-            className="btn btn-secondary btn-sm"
+            className="btn btn-staff btn-sm"
+            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
             title="Preview & Print Tax Invoice"
           >
-            <Printer size={14} /> Print
+            <Printer size={13} /> Bill
+          </button>
+          
+          <button
+            onClick={() => {
+              const rxData = {
+                prescriptionId: row.prescription?.prescriptionId || `RX-${row.patientId}`,
+                patientName: row.patientName,
+                patientId: row.patientId,
+                patientAge: row.patientAge,
+                patientGender: row.patientGender,
+                patientPhone: row.patientPhone,
+                patientDOB: row.patientDOB,
+                doctorName: row.doctorName,
+                doctorSpecialization: row.doctorSpecialization,
+                doctorQualification: row.doctorQualification,
+                doctorRegNo: row.doctorRegNo,
+                consultationDate: row.appointmentDate || row.createdAt?.split('T')[0] || new Date().toISOString().split('T')[0],
+                chiefComplaints: row.consultation?.chiefComplaint || (row.procedures && row.procedures.length > 0 ? `Procedures: ${row.procedures.map(p => p.name).join(', ')}` : (row.medicalHistory && row.medicalHistory !== 'None' ? `History: ${row.medicalHistory}` : '')),
+                allergies: row.allergies,
+                medicalHistory: row.medicalHistory,
+                medicines: row.prescription?.medicines || [],
+                procedures: (row.procedures || []).map(p => p.name),
+                createdAt: row.createdAt
+              };
+              setSelectedRXForPrint({
+                rx: rxData,
+                consultation: row.consultation || {
+                  patientName: row.patientName,
+                  patientId: row.patientId,
+                  patientAge: row.patientAge,
+                  patientGender: row.patientGender,
+                  patientPhone: row.patientPhone,
+                  doctorName: row.doctorName,
+                  doctorSpecialization: row.doctorSpecialization,
+                  doctorQualification: row.doctorQualification,
+                  doctorRegNo: row.doctorRegNo,
+                  procedureDetails: (row.procedures || []).map(p => p.name).join(', ')
+                }
+              });
+              setRxModalOpen(true);
+            }}
+            className="btn btn-doctor btn-sm"
+            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+            title="Preview & Print Prescription (RX)"
+          >
+            <Stethoscope size={13} /> RX
           </button>
         </div>
       )
@@ -313,9 +366,22 @@ const StaffBillingPage = () => {
               <select
                 className="form-select"
                 value={formData.consultationType}
-                onChange={(e) => setFormData({ ...formData, consultationType: e.target.value })}
+                onChange={(e) => {
+                  const newType = e.target.value;
+                  const doc = doctors.find(d => d.doctorId === formData.doctorId);
+                  setFormData({
+                    ...formData,
+                    consultationType: newType,
+                    consultationFee: newType === 'Consultation' ? (doc?.consultationRates?.consultationFee || 800) : 0,
+                    procedures: newType === 'Follow-up Visit (Zero Bill)' ? [] : formData.procedures,
+                    discount: newType === 'Follow-up Visit (Zero Bill)' ? 0 : formData.discount,
+                    tax: newType === 'Follow-up Visit (Zero Bill)' ? 0 : formData.tax,
+                    paid: newType === 'Follow-up Visit (Zero Bill)' ? 0 : formData.paid
+                  });
+                }}
               >
                 <option value="Consultation">Consultation (Physician Visit)</option>
+                <option value="Follow-up Visit (Zero Bill)">Follow-up Visit (Zero Bill)</option>
                 <option value="Procedure">Procedure (Procedure Only)</option>
               </select>
             </div>
@@ -373,6 +439,17 @@ const StaffBillingPage = () => {
                       <td>1</td>
                       <td>₹{formData.consultationFee}</td>
                       <td style={{ fontWeight: 700 }}>₹{formData.consultationFee}</td>
+                      <td>-</td>
+                    </tr>
+                  )}
+                  {formData.consultationType === 'Follow-up Visit (Zero Bill)' && (
+                    <tr style={{ backgroundColor: '#F0FDF4' }}>
+                      <td style={{ fontWeight: 600, color: '#166534' }}>
+                        Follow-up Visit (Zero Bill)
+                      </td>
+                      <td>1</td>
+                      <td>₹0</td>
+                      <td style={{ fontWeight: 700, color: '#166534' }}>₹0</td>
                       <td>-</td>
                     </tr>
                   )}
@@ -438,6 +515,28 @@ const StaffBillingPage = () => {
           invoice={selectedInvoice}
           onClose={() => setInvoiceModalOpen(false)}
         />
+      </Modal>
+
+      {/* RX PREVIEW MODAL */}
+      <Modal
+        isOpen={rxModalOpen}
+        onClose={() => {
+          setRxModalOpen(false);
+          setSelectedRXForPrint(null);
+        }}
+        title="Prescription Slip (RX Preview)"
+        size="xl"
+      >
+        {selectedRXForPrint && (
+          <RXPreviewModal
+            prescription={selectedRXForPrint.rx}
+            consultation={selectedRXForPrint.consultation}
+            onClose={() => {
+              setRxModalOpen(false);
+              setSelectedRXForPrint(null);
+            }}
+          />
+        )}
       </Modal>
     </div>
   );

@@ -25,14 +25,28 @@ class AppointmentService {
     return list.map(apt => {
       const patient = db.patients.find(p => p.patientId === apt.patientId) || {};
       const doctor = db.doctors.find(d => d.doctorId === apt.doctorId) || {};
+      const bill = db.bills.find(b => b.appointmentId === apt.appointmentId || (b.patientId === apt.patientId && b.doctorId === apt.doctorId && b.createdAt?.startsWith(apt.date))) || null;
+      const consultation = db.consultations.find(c => c.appointmentId === apt.appointmentId || (c.patientId === apt.patientId && c.doctorId === apt.doctorId && c.createdAt?.startsWith(apt.date))) || null;
+      const prescription = consultation?.prescriptionId ? db.prescriptions.find(pr => pr.prescriptionId === consultation.prescriptionId) : null;
       return {
         ...apt,
         patientName: patient.name || 'Unknown Patient',
         patientAge: patient.age || null,
         patientGender: patient.gender || null,
         patientPhone: patient.phone || null,
+        patientDOB: patient.dateOfBirth || null,
+        patientAddress: patient.address || null,
+        allergies: patient.allergies || 'None',
+        medicalHistory: patient.medicalHistory || 'None',
         doctorName: doctor.name || 'Unknown Doctor',
-        doctorSpecialization: doctor.specialization || ''
+        doctorSpecialization: doctor.specialization || '',
+        doctorQualification: doctor.qualification || '',
+        doctorRegNo: doctor.registrationNumber || '',
+        billId: bill ? bill.billId : null,
+        invoiceNumber: bill ? bill.invoiceNumber : null,
+        bill: bill || null,
+        consultation: consultation || null,
+        prescription: prescription || null
       };
     }).sort((a, b) => {
       // Sort by status priority (Waiting -> In Consultation -> Completed -> Cancelled) then time
@@ -96,6 +110,8 @@ class AppointmentService {
         doctorId: doc.doctorId,
         name: doc.name,
         specialization: doc.specialization,
+        qualification: doc.qualification || '',
+        registrationNumber: doc.registrationNumber || '',
         workingDays: doc.workingDays,
         workingHours: doc.workingHours,
         breakTimes: doc.breakTimes,
@@ -129,8 +145,8 @@ class AppointmentService {
       throw { statusCode: 400, message: 'Patient ID, Doctor ID, Date and Time are required' };
     }
 
-    if (!['Consultation', 'Procedure'].includes(appointmentType)) {
-      throw { statusCode: 400, message: 'Appointment Type must be either Consultation or Procedure' };
+    if (!['Consultation', 'Procedure', 'Follow-up Visit (Zero Bill)', 'Follow-up Visit'].includes(appointmentType)) {
+      throw { statusCode: 400, message: 'Appointment Type must be Consultation, Procedure, or Follow-up Visit (Zero Bill)' };
     }
 
     const patient = db.patients.find(p => p.patientId === patientId);
