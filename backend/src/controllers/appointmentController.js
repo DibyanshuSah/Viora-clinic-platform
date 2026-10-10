@@ -4,8 +4,17 @@ const { successResponse } = require('../utils/responseHandler');
 class AppointmentController {
   getAppointments(req, res, next) {
     try {
-      const appointments = appointmentService.getAppointments(req.query);
+      const appointments = appointmentService.getAppointments(req.query, req.user);
       return successResponse(res, 'Appointments retrieved successfully', appointments);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  getAppointmentById(req, res, next) {
+    try {
+      const appointment = appointmentService.getAppointmentById(req.params.id);
+      return successResponse(res, 'Appointment retrieved successfully', appointment);
     } catch (err) {
       next(err);
     }

@@ -217,6 +217,10 @@ class ApiService {
     return this.get('/appointments', filters);
   }
 
+  getAppointmentById(id) {
+    return this.get(`/appointments/${id}`);
+  }
+
   getDoctorSchedules(date) {
     return this.get('/schedules/doctors', date ? { date } : {});
   }
@@ -286,6 +290,26 @@ class ApiService {
 
   getInvoice(id) {
     return this.get(`/invoices/${id}`);
+  }
+
+  updateBill(id, data) {
+    return this.put(`/billing/${id}`, data);
+  }
+
+  deleteBill(id) {
+    return this.delete(`/billing/${id}`);
+  }
+
+  deletePatientBills(patientId) {
+    return this.delete(`/billing/patient/${patientId}`);
+  }
+
+  getBillingLogs() {
+    return this.get('/billing/logs');
+  }
+
+  getNextPatientId() {
+    return this.get('/patients/next-id');
   }
 
   // Analytics (Admin Only)

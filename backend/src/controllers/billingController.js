@@ -31,8 +31,44 @@ class BillingController {
 
   updatePayment(req, res, next) {
     try {
-      const bill = billingService.updateBillPayment(req.params.id, req.body);
+      const bill = billingService.updateBillPayment(req.params.id, req.body, req.user);
       return successResponse(res, 'Payment updated successfully', bill);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  updateBill(req, res, next) {
+    try {
+      const updated = billingService.updateBill(req.params.id, req.body, req.user);
+      return successResponse(res, 'Bill updated successfully', updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  deleteBill(req, res, next) {
+    try {
+      const result = billingService.deleteBill(req.params.id, req.user);
+      return successResponse(res, result.message, result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  deletePatientBills(req, res, next) {
+    try {
+      const result = billingService.deletePatientTotalBills(req.params.patientId, req.user);
+      return successResponse(res, result.message, result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  getBillingLogs(req, res, next) {
+    try {
+      const logs = billingService.getBillingLogs();
+      return successResponse(res, 'Billing audit logs retrieved successfully', logs);
     } catch (err) {
       next(err);
     }

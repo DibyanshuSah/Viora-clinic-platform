@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   UserPlus,
+  Users,
   Calendar,
   CreditCard,
   CheckCircle2,
@@ -13,7 +14,9 @@ import {
   Stethoscope,
   IndianRupee,
   ShieldCheck,
-  AlertCircle
+  AlertCircle,
+  Search,
+  X
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -26,6 +29,12 @@ import { LoadingState } from '../../components/common/LoadingState';
 const StaffRegistrationPage = () => {
   const [doctors, setDoctors] = useState([]);
   const [proceduresCatalog, setProceduresCatalog] = useState([]);
+  const [existingPatients, setExistingPatients] = useState([]);
+  const [isExistingPatient, setIsExistingPatient] = useState(false);
+  const [selectedExistingPatientId, setSelectedExistingPatientId] = useState('');
+  const [nextPatientId, setNextPatientId] = useState('');
+  const [draftInvoiceModalOpen, setDraftInvoiceModalOpen] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const { showToast } = useToast();
@@ -43,6 +52,7 @@ const StaffRegistrationPage = () => {
 
   // 1. Patient State
   const [patientData, setPatientData] = useState({
+    patientId: '',
     name: '',
     dateOfBirth: '',
     age: '',
@@ -78,27 +88,75 @@ const StaffRegistrationPage = () => {
   const [paidAmount, setPaidAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('UPI');
 
+  const defaultSlots = [
+    { time: '09:00', available: true },
+    { time: '09:30', available: true },
+    { time: '10:00', available: true },
+    { time: '10:30', available: true },
+    { time: '11:00', available: true },
+    { time: '11:30', available: true },
+    { time: '12:00', available: true },
+    { time: '14:00', available: true },
+    { time: '14:30', available: true },
+    { time: '15:00', available: true },
+    { time: '15:30', available: true },
+    { time: '16:00', available: true },
+    { time: '16:30', available: true },
+    { time: '17:00', available: true }
+  ];
+
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [docRes, procRes] = await Promise.all([
-        api.getDoctorSchedules(todayStr),
-        api.getProcedures()
+      const [allDocsRes, schedRes, procRes, patRes, nextIdRes] = await Promise.all([
+        api.getDoctors().catch(() => ({ success: false, data: [] })),
+        api.getDoctorSchedules(todayStr).catch(() => ({ success: false, data: [] })),
+        api.getProcedures(),
+        api.getPatients(),
+        api.getNextPatientId()
       ]);
 
-      if (docRes.success && docRes.data.length > 0) {
-        setDoctors(docRes.data);
-        const firstDoc = docRes.data[0];
+      let combinedDoctors = [];
+      if (allDocsRes.success && allDocsRes.data?.length > 0) {
+        const schedMap = new Map((schedRes?.data || []).map((s) => [s.doctorId, s]));
+        combinedDoctors = allDocsRes.data
+          .filter((d) => d.status === 'Active')
+          .map((doc) => {
+            const sched = schedMap.get(doc.doctorId);
+            const fee = doc.consultationFee || doc.consultationRates?.consultationFee || sched?.consultationFee || 800;
+            const slots = (sched?.slots && sched.slots.length > 0) ? sched.slots : defaultSlots;
+            return {
+              ...doc,
+              consultationFee: fee,
+              slots,
+              isWorkingToday: sched ? sched.isWorkingToday : true
+            };
+          });
+      } else if (schedRes.success && schedRes.data?.length > 0) {
+        combinedDoctors = schedRes.data;
+      }
+
+      if (combinedDoctors.length > 0) {
+        setDoctors(combinedDoctors);
+        const firstDoc = combinedDoctors[0];
         setAppointmentData((prev) => ({
           ...prev,
-          doctorId: firstDoc.doctorId,
-          time: firstDoc.slots?.find((s) => s.available)?.time || '10:00'
+          doctorId: prev.doctorId || firstDoc.doctorId,
+          time: prev.time || firstDoc.slots?.find((s) => s.available)?.time || '10:00'
         }));
-        setAvailableSlots(firstDoc.slots || []);
+        setAvailableSlots(firstDoc.slots || defaultSlots);
       }
 
       if (procRes.success) {
         setProceduresCatalog(procRes.data.filter((p) => p.status === 'Active'));
+      }
+
+      if (patRes.success) {
+        setExistingPatients(patRes.data || []);
+      }
+
+      if (nextIdRes.success && nextIdRes.data?.nextPatientId) {
+        setNextPatientId(nextIdRes.data.nextPatientId);
       }
     } catch (err) {
       showToast(err.message || 'Failed to load clinic roster', 'error');
@@ -166,6 +224,222 @@ const StaffRegistrationPage = () => {
     setBillingProcedures((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  const handleUpdateProcedureItem = (idx, field, value) => {
+    setBillingProcedures((prev) => {
+      const updated = [...prev];
+      if (!updated[idx]) return prev;
+      const current = { ...updated[idx] };
+      if (field === 'qty') {
+        current.qty = Math.max(1, parseInt(value, 10) || 1);
+      } else if (field === 'price') {
+        current.price = Math.max(0, parseFloat(value) || 0);
+      } else if (field === 'name') {
+        current.name = value;
+      }
+      updated[idx] = current;
+      return updated;
+    });
+  };
+
+  // Step 3 Procedure Search Box & Manual Item Entry State
+  const [procedureSearchQuery, setProcedureSearchQuery] = useState('');
+  const [showProcedureSearchResults, setShowProcedureSearchResults] = useState(false);
+  const procedureSearchContainerRef = useRef(null);
+
+  const [manualItem, setManualItem] = useState({
+    name: '',
+    qty: 1,
+    rate: ''
+  });
+
+  const handleManualAddItem = async () => {
+    const itemName = manualItem.name.trim();
+    if (!itemName) {
+      showToast('Item description / procedure name is required', 'error');
+      return;
+    }
+    const rate = parseFloat(manualItem.rate);
+    if (isNaN(rate) || rate < 0) {
+      showToast('Please enter a valid rate (₹)', 'error');
+      return;
+    }
+    const qty = Math.max(1, parseInt(manualItem.qty, 10) || 1);
+
+    let matchedProc = proceduresCatalog.find(
+      (p) => p.name && p.name.trim().toLowerCase() === itemName.toLowerCase()
+    );
+
+    let procedureId = matchedProc ? matchedProc.procedureId : null;
+    let doctorCut = matchedProc ? matchedProc.defaultDoctorCut : Math.round(rate * 0.3);
+
+    // If NOT in DB catalog, save it to the DB so it is permanently stored for all future patients!
+    if (!matchedProc) {
+      try {
+        const createRes = await api.createProcedure({
+          name: itemName,
+          defaultPrice: rate,
+          defaultDoctorCut: doctorCut,
+          description: 'Added via Patient Registration'
+        });
+        if (createRes.success && createRes.data) {
+          matchedProc = createRes.data;
+          procedureId = createRes.data.procedureId;
+          setProceduresCatalog((prev) => [createRes.data, ...prev]);
+          showToast(`Saved "${itemName}" to DB procedure catalog`, 'info');
+        }
+      } catch (err) {
+        console.warn('Procedure API auto-creation note:', err.message);
+      }
+    }
+
+    setBillingProcedures((prev) => [
+      ...prev,
+      {
+        procedureId: procedureId || 'CUSTOM',
+        name: itemName,
+        price: rate,
+        qty,
+        doctorCut
+      }
+    ]);
+
+    setManualItem({ name: '', qty: 1, rate: '' });
+    setProcedureSearchQuery('');
+    showToast(`Added ${itemName} (Qty: ${qty}, Rate: ₹${rate}) to invoice`, 'success');
+  };
+
+  // Step 2 Procedure Search Box State & Filtering (if appointmentType === 'Procedure')
+  const [step2ProcedureSearchQuery, setStep2ProcedureSearchQuery] = useState('');
+  const [showStep2ProcedureResults, setShowStep2ProcedureResults] = useState(false);
+  const step2SearchRef = useRef(null);
+
+  // Filter procedures for Step 3 search box
+  const filteredProcedures = proceduresCatalog.filter((p) => {
+    if (!procedureSearchQuery.trim()) return true;
+    const q = procedureSearchQuery.toLowerCase();
+    return (
+      p.name?.toLowerCase().includes(q) ||
+      p.procedureId?.toLowerCase().includes(q) ||
+      p.description?.toLowerCase().includes(q)
+    );
+  });
+
+  // Filter procedures for Step 2 search box
+  const filteredStep2Procedures = proceduresCatalog.filter((p) => {
+    if (!step2ProcedureSearchQuery.trim()) return true;
+    const q = step2ProcedureSearchQuery.toLowerCase();
+    return (
+      p.name?.toLowerCase().includes(q) ||
+      p.procedureId?.toLowerCase().includes(q) ||
+      p.description?.toLowerCase().includes(q)
+    );
+  });
+
+  // Handle click outside to close search result dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        procedureSearchContainerRef.current &&
+        !procedureSearchContainerRef.current.contains(event.target)
+      ) {
+        setShowProcedureSearchResults(false);
+      }
+      if (
+        step2SearchRef.current &&
+        !step2SearchRef.current.contains(event.target)
+      ) {
+        setShowStep2ProcedureResults(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Resolved Patient ID (Pre-allocated or Existing)
+  const assignedPatientId = isExistingPatient
+    ? (patientData.patientId || selectedExistingPatientId || 'PAT-EXISTING')
+    : (nextPatientId || 'PAT-NEW');
+
+  // Match existing patient by entered phone number
+  const matchedExistingPatient = patientData.phone && patientData.phone.length >= 8
+    ? existingPatients.find((p) => p.phone && p.phone.trim() === patientData.phone.trim())
+    : null;
+
+  const handleSelectExistingPatient = (patientId) => {
+    setSelectedExistingPatientId(patientId);
+    if (!patientId) {
+      setIsExistingPatient(false);
+      setPatientData({
+        patientId: '',
+        name: '',
+        dateOfBirth: '',
+        age: '',
+        gender: 'Female',
+        phone: '',
+        email: '',
+        address: '',
+        city: 'Bengaluru',
+        state: 'Karnataka',
+        pinCode: '',
+        allergies: 'None',
+        medicalHistory: 'None',
+        emergencyContact: ''
+      });
+      return;
+    }
+
+    const pat = existingPatients.find((p) => p.patientId === patientId);
+    if (pat) {
+      setIsExistingPatient(true);
+      setPatientData({
+        patientId: pat.patientId,
+        name: pat.name || '',
+        dateOfBirth: pat.dateOfBirth || '',
+        age: pat.age || '',
+        gender: pat.gender || 'Female',
+        phone: pat.phone || '',
+        email: pat.email || '',
+        address: pat.address || '',
+        city: pat.city || 'Bengaluru',
+        state: pat.state || 'Karnataka',
+        pinCode: pat.pinCode || '',
+        allergies: pat.allergies || 'None',
+        medicalHistory: pat.medicalHistory || 'None',
+        emergencyContact: pat.emergencyContact || ''
+      });
+      showToast(`Selected existing record: ${pat.name} (${pat.patientId})`, 'info');
+    }
+  };
+
+  // Draft Bill / Temporary Consultation & Procedure State under Patient ID
+  const draftInvoice = {
+    invoiceNumber: `DRAFT-${assignedPatientId}`,
+    patientId: assignedPatientId,
+    patientName: patientData.name || 'Draft Patient Record',
+    patientAge: patientData.age || 0,
+    patientGender: patientData.gender || 'Other',
+    patientPhone: patientData.phone || '',
+    patientAddress: patientData.address ? `${patientData.address}, ${patientData.city}` : 'Clinic Walk-in',
+    doctorName: selectedDoctorObj?.name || 'Attending Physician',
+    doctorSpecialization: selectedDoctorObj?.specialization || 'Physician',
+    doctorQualification: selectedDoctorObj?.qualification || '',
+    doctorRegNo: selectedDoctorObj?.registrationNumber || '',
+    consultationType: appointmentData.appointmentType,
+    consultationFee,
+    procedures: billingProcedures,
+    subtotal,
+    discount: Number(discount),
+    tax: Number(tax),
+    total: grandTotal,
+    paid: Number(paidAmount || grandTotal),
+    balance: Math.max(0, grandTotal - Number(paidAmount || grandTotal)),
+    paymentMethod,
+    paymentStatus: (Number(paidAmount) >= grandTotal || !paidAmount) ? 'Paid' : 'Partially Paid',
+    createdAt: new Date().toISOString()
+  };
+
   // COMPLETE CONNECTED WORKFLOW TRANSACTION: REGISTER AND BILL
   const handleRegisterAndBill = async () => {
     if (!patientData.name || !patientData.phone) {
@@ -180,6 +454,7 @@ const StaffRegistrationPage = () => {
       const payload = {
         patient: {
           ...patientData,
+          patientId: isExistingPatient ? (patientData.patientId || selectedExistingPatientId) : undefined,
           age: Number(patientData.age) || 0
         },
         appointment: {
@@ -206,7 +481,12 @@ const StaffRegistrationPage = () => {
 
       const res = await api.connectedRegisterAndBill(payload);
       if (res.success) {
-        showToast(`Patient ${res.data.patient.name} registered & bill generated!`, 'success');
+        showToast(
+          isExistingPatient
+            ? `Existing patient ${res.data.patient.name} updated & new bill generated!`
+            : `Patient ${res.data.patient.name} registered & bill generated!`,
+          'success'
+        );
         setTransactionResult(res.data);
         setInvoiceModalOpen(true);
       }
@@ -223,6 +503,7 @@ const StaffRegistrationPage = () => {
 
   const rxObject = transactionResult ? {
     prescriptionId: `RX-${transactionResult.patient?.patientId || 'REG'}`,
+    appointmentId: transactionResult.appointment?.appointmentId,
     patientName: transactionResult.patient?.name || patientData.name,
     patientId: transactionResult.patient?.patientId || 'PAT-NEW',
     patientAge: transactionResult.patient?.age || patientData.age,
@@ -419,14 +700,144 @@ const StaffRegistrationPage = () => {
         {/* STEP 1: PATIENT DEMOGRAPHICS */}
         {currentStep === 1 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div>
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--role-staff-primary)', margin: 0 }}>
-                Step 1: Patient Personal & Contact Information
-              </h3>
-              <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
-                Unique VIORA Patient ID will be assigned automatically upon completion.
-              </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--role-staff-primary)', margin: 0 }}>
+                  Step 1: Patient Personal & Contact Information
+                </h3>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                  {isExistingPatient
+                    ? 'Updating existing registered patient record and attaching new visit/bill.'
+                    : 'Registering new patient. Target Patient ID allocated below.'}
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--role-staff-bg)', padding: '6px 12px', borderRadius: '6px' }}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Target Patient ID:</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--role-staff-primary)' }}>{assignedPatientId}</span>
+              </div>
             </div>
+
+            {/* REGISTER NEW VS EXISTING PATIENT SELECTOR */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: 'var(--bg-app)',
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-subtle)',
+                flexWrap: 'wrap',
+                gap: '10px'
+              }}
+            >
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsExistingPatient(false);
+                    setSelectedExistingPatientId('');
+                    setPatientData({
+                      patientId: '',
+                      name: '',
+                      dateOfBirth: '',
+                      age: '',
+                      gender: 'Female',
+                      phone: '',
+                      email: '',
+                      address: '',
+                      city: 'Bengaluru',
+                      state: 'Karnataka',
+                      pinCode: '',
+                      allergies: 'None',
+                      medicalHistory: 'None',
+                      emergencyContact: ''
+                    });
+                  }}
+                  className={`btn btn-sm ${!isExistingPatient ? 'btn-staff' : 'btn-secondary'}`}
+                >
+                  <UserPlus size={14} /> Register New Patient
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsExistingPatient(true)}
+                  className={`btn btn-sm ${isExistingPatient ? 'btn-staff' : 'btn-secondary'}`}
+                >
+                  <Users size={14} /> Existing Patient (Add Visit & Bill)
+                </button>
+              </div>
+
+              {isExistingPatient && (
+                <span style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600 }}>
+                  ✔ Single Patient Record Policy: No duplicates will be created
+                </span>
+              )}
+            </div>
+
+            {/* EXISTING PATIENT DROPDOWN */}
+            {isExistingPatient && (
+              <div
+                style={{
+                  backgroundColor: '#F0FDF4',
+                  padding: '14px 16px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid #BBF7D0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}
+              >
+                <label className="form-label" style={{ fontWeight: 700, color: '#166534', margin: 0 }}>
+                  Select Existing Registered Patient *
+                </label>
+                <select
+                  className="form-select"
+                  value={selectedExistingPatientId}
+                  onChange={(e) => handleSelectExistingPatient(e.target.value)}
+                  style={{ borderColor: '#86EFAC' }}
+                >
+                  <option value="">-- Choose Registered Patient from Database --</option>
+                  {existingPatients.map((p) => (
+                    <option key={p.patientId} value={p.patientId}>
+                      {p.name} ({p.patientId}) - Phone: {p.phone}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ fontSize: '0.75rem', color: '#15803D' }}>
+                  ℹ Loading an existing patient preserves their patient ID and history. You can edit any details below and they will update this single record.
+                </span>
+              </div>
+            )}
+
+            {/* PHONE MATCH SUGGESTION FOR NEW PATIENT */}
+            {!isExistingPatient && matchedExistingPatient && (
+              <div
+                style={{
+                  backgroundColor: '#EFF6FF',
+                  border: '1px solid #BFDBFE',
+                  padding: '12px 16px',
+                  borderRadius: 'var(--radius-sm)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '8px'
+                }}
+              >
+                <div style={{ fontSize: '0.8125rem', color: '#1E40AF' }}>
+                  <strong>Existing Patient Found:</strong> {matchedExistingPatient.name} ({matchedExistingPatient.patientId}) is registered with phone {patientData.phone}.
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ borderColor: '#3B82F6', color: '#1D4ED8' }}
+                  onClick={() => handleSelectExistingPatient(matchedExistingPatient.patientId)}
+                >
+                  Use Existing Record & Avoid Duplicate
+                </button>
+              </div>
+            )}
 
             <div>
               <h4 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '10px' }}>
@@ -588,11 +999,15 @@ const StaffRegistrationPage = () => {
                   value={appointmentData.doctorId}
                   onChange={(e) => handleDoctorChange(e.target.value)}
                 >
-                  {doctors.map((d) => (
-                    <option key={d.doctorId} value={d.doctorId}>
-                      {d.name} ({d.specialization}) - Fee: ₹{d.consultationFee}
-                    </option>
-                  ))}
+                  {doctors.length === 0 ? (
+                    <option value="">No doctors registered yet (Add doctor in Admin &gt; Doctor Management)</option>
+                  ) : (
+                    doctors.map((d) => (
+                      <option key={d.doctorId} value={d.doctorId}>
+                        {d.name} ({d.specialization}) - Fee: ₹{d.consultationFee}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
@@ -632,32 +1047,126 @@ const StaffRegistrationPage = () => {
               />
             </div>
 
-            {/* PROCEDURE SELECT IF PROCEDURE TYPE */}
+            {/* PROCEDURE SEARCH IF PROCEDURE TYPE */}
             {appointmentData.appointmentType === 'Procedure' && (
-              <div className="form-group">
-                <label className="form-label">Select Primary Procedure</label>
-                <select
-                  className="form-select"
-                  value={appointmentData.procedureId}
-                  onChange={(e) => {
-                    const proc = proceduresCatalog.find((p) => p.procedureId === e.target.value);
-                    setAppointmentData({
-                      ...appointmentData,
-                      procedureId: e.target.value,
-                      procedureName: proc ? proc.name : ''
-                    });
-                    if (proc) {
-                      handleAddProcedureToBill(proc.procedureId);
-                    }
-                  }}
-                >
-                  <option value="">-- Choose Procedure from Catalog --</option>
-                  {proceduresCatalog.map((p) => (
-                    <option key={p.procedureId} value={p.procedureId}>
-                      {p.name} - ₹{p.defaultPrice}
-                    </option>
-                  ))}
-                </select>
+              <div className="form-group" ref={step2SearchRef} style={{ position: 'relative' }}>
+                <label className="form-label">
+                  Search & Select Primary Procedure <span className="required">*</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <Search
+                    size={16}
+                    color="var(--role-staff-primary)"
+                    style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }}
+                  />
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={step2ProcedureSearchQuery || appointmentData.procedureName || ''}
+                    onChange={(e) => {
+                      setStep2ProcedureSearchQuery(e.target.value);
+                      setShowStep2ProcedureResults(true);
+                    }}
+                    onFocus={() => setShowStep2ProcedureResults(true)}
+                    placeholder="Search procedure item (e.g. Dental Cleaning, X-Ray, Root Canal)..."
+                    style={{
+                      paddingLeft: '34px',
+                      paddingRight: (step2ProcedureSearchQuery || appointmentData.procedureName) ? '28px' : '10px'
+                    }}
+                  />
+                  {(step2ProcedureSearchQuery || appointmentData.procedureName) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStep2ProcedureSearchQuery('');
+                        setAppointmentData({
+                          ...appointmentData,
+                          procedureId: '',
+                          procedureName: ''
+                        });
+                        setShowStep2ProcedureResults(false);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'var(--text-muted)'
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {appointmentData.procedureName && (
+                  <div style={{ marginTop: '6px', fontSize: '0.8rem', color: '#166534', fontWeight: 600 }}>
+                    ✔ Selected Procedure: {appointmentData.procedureName} ({appointmentData.procedureId})
+                  </div>
+                )}
+
+                {showStep2ProcedureResults && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 4px)',
+                      left: 0,
+                      right: 0,
+                      zIndex: 50,
+                      backgroundColor: '#FFFFFF',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-sm)',
+                      boxShadow: '0 4px 14px rgba(0,0,0,0.12)',
+                      maxHeight: '220px',
+                      overflowY: 'auto'
+                    }}
+                  >
+                    {filteredStep2Procedures.length > 0 ? (
+                      filteredStep2Procedures.map((p) => (
+                        <div
+                          key={p.procedureId}
+                          onClick={() => {
+                            setAppointmentData({
+                              ...appointmentData,
+                              procedureId: p.procedureId,
+                              procedureName: p.name
+                            });
+                            handleAddProcedureToBill(p.procedureId);
+                            setStep2ProcedureSearchQuery(p.name);
+                            setShowStep2ProcedureResults(false);
+                            showToast(`Selected primary procedure: ${p.name}`, 'success');
+                          }}
+                          style={{
+                            padding: '10px 14px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid #F1F5F9',
+                            backgroundColor: appointmentData.procedureId === p.procedureId ? '#F0FDF4' : '#FFFFFF'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F8FAFC'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = appointmentData.procedureId === p.procedureId ? '#F0FDF4' : '#FFFFFF'}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{p.name}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Code: {p.procedureId}</div>
+                          </div>
+                          <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--role-staff-primary)' }}>
+                            ₹{p.defaultPrice}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ padding: '14px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                        No procedures found matching "{step2ProcedureSearchQuery}"
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -730,38 +1239,233 @@ const StaffRegistrationPage = () => {
 
             {/* BILLING ITEMS & PROCEDURES */}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Invoice Line Items</span>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <select
-                    className="form-select"
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '0.8125rem',
-                      fontWeight: 600,
-                      width: 'auto',
-                      border: '2px solid #16A34A',
-                      borderRadius: 'var(--radius-sm)',
-                      backgroundColor: '#F0FDF4',
-                      color: '#15803D',
-                      cursor: 'pointer',
-                      boxShadow: '0 1px 3px rgba(22, 163, 74, 0.15)'
-                    }}
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleAddProcedureToBill(e.target.value);
-                        e.target.value = '';
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '12px',
+                  flexWrap: 'wrap',
+                  gap: '12px'
+                }}
+              >
+                <div>
+                  <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Invoice Line Items</span>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    Type in the search box to search and add procedures to this patient's invoice.
+                  </p>
+                </div>
+
+                {/* PROCEDURE ITEM SEARCH BOX (REPLACES OLD DROPDOWN) */}
+                <div ref={procedureSearchContainerRef} style={{ position: 'relative', width: '380px', maxWidth: '100%' }}>
+                  <div style={{ position: 'relative' }}>
+                    <Search
+                      size={16}
+                      color="var(--role-staff-primary)"
+                      style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }}
+                    />
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={procedureSearchQuery}
+                      onChange={(e) => {
+                        setProcedureSearchQuery(e.target.value);
+                        setShowProcedureSearchResults(true);
+                      }}
+                      onFocus={() => setShowProcedureSearchResults(true)}
+                      placeholder="Search procedure item (e.g. Dental, X-Ray, Root Canal)..."
+                      style={{
+                        paddingLeft: '34px',
+                        paddingRight: procedureSearchQuery ? '28px' : '10px',
+                        fontSize: '0.82rem',
+                        borderColor: showProcedureSearchResults ? 'var(--role-staff-primary)' : 'var(--border-subtle)',
+                        boxShadow: showProcedureSearchResults ? '0 0 0 2px rgba(22, 163, 74, 0.15)' : 'none'
+                      }}
+                    />
+                    {procedureSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProcedureSearchQuery('');
+                          setShowProcedureSearchResults(false);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: 'var(--text-muted)'
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* SEARCH RESULTS OVERLAY */}
+                  {showProcedureSearchResults && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 4px)',
+                        left: 0,
+                        right: 0,
+                        zIndex: 50,
+                        backgroundColor: '#FFFFFF',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
+                        maxHeight: '260px',
+                        overflowY: 'auto'
+                      }}
+                    >
+                      {filteredProcedures.length > 0 ? (
+                        filteredProcedures.map((p) => {
+                          const isAdded = billingProcedures.some(bp => bp.procedureId === p.procedureId);
+                          return (
+                            <div
+                              key={p.procedureId}
+                              onClick={() => {
+                                handleAddProcedureToBill(p.procedureId);
+                                setProcedureSearchQuery('');
+                                setShowProcedureSearchResults(false);
+                                showToast(`Added ${p.name} (₹${p.defaultPrice}) to invoice`, 'success');
+                              }}
+                              style={{
+                                padding: '10px 14px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                borderBottom: '1px solid #F1F5F9',
+                                backgroundColor: '#FFFFFF',
+                                transition: 'background 0.15s ease'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F8FAFC'}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#FFFFFF'}
+                            >
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-main)' }}>
+                                  {p.name}
+                                </div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                  Code: {p.procedureId} {p.description ? `• ${p.description}` : ''}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--role-staff-primary)' }}>
+                                  ₹{p.defaultPrice}
+                                </span>
+                                {isAdded ? (
+                                  <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: '#DCFCE7', color: '#166534', fontWeight: 600 }}>
+                                    Added
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', backgroundColor: '#F0FDF4', color: '#15803D', fontWeight: 700, border: '1px solid #BBF7D0' }}>
+                                    + Add
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                          No procedure items matching "{procedureSearchQuery}"
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* MANUAL ITEM, QTY, RATE ENTRY BAR */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 90px 120px 110px',
+                  gap: '8px',
+                  alignItems: 'end',
+                  padding: '10px 12px',
+                  marginBottom: '12px',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: 'var(--radius-sm)'
+                }}
+              >
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Item / Procedure Name
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={manualItem.name}
+                    onChange={(e) => setManualItem({ ...manualItem, name: e.target.value })}
+                    placeholder="e.g. Scaling, X-Ray, Root Canal, Dressing..."
+                    style={{ fontSize: '0.82rem', padding: '6px 10px' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleManualAddItem();
                       }
                     }}
-                  >
-                    <option value="" style={{ fontWeight: 600, color: '#15803D' }}>+ Add Procedure Item...</option>
-                    {proceduresCatalog.map((p) => (
-                      <option key={p.procedureId} value={p.procedureId} style={{ color: 'var(--text-main)' }}>
-                        {p.name} (₹{p.defaultPrice})
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Qty
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="form-input"
+                    value={manualItem.qty}
+                    onChange={(e) => setManualItem({ ...manualItem, qty: e.target.value })}
+                    style={{ fontSize: '0.82rem', padding: '6px 8px', textAlign: 'center' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleManualAddItem();
+                      }
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Rate (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="form-input"
+                    value={manualItem.rate}
+                    onChange={(e) => setManualItem({ ...manualItem, rate: e.target.value })}
+                    placeholder="0"
+                    style={{ fontSize: '0.82rem', padding: '6px 10px' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleManualAddItem();
+                      }
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleManualAddItem}
+                  className="btn btn-staff"
+                  style={{ height: '35px', padding: '0 10px', fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}
+                  title="Add item to invoice and save to DB catalog if new"
+                >
+                  <Plus size={14} /> Add Item
+                </button>
               </div>
 
               <div className="table-container" style={{ border: 'none', boxShadow: 'none' }}>
@@ -769,10 +1473,10 @@ const StaffRegistrationPage = () => {
                   <thead>
                     <tr>
                       <th>Description</th>
-                      <th>Qty</th>
-                      <th>Rate</th>
-                      <th>Amount</th>
-                      <th>Action</th>
+                      <th style={{ width: '90px', textAlign: 'center' }}>Qty</th>
+                      <th style={{ width: '130px' }}>Rate (₹)</th>
+                      <th style={{ width: '120px' }}>Amount (₹)</th>
+                      <th style={{ width: '40px' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -780,7 +1484,7 @@ const StaffRegistrationPage = () => {
                     {appointmentData.appointmentType === 'Consultation' && (
                       <tr>
                         <td style={{ fontWeight: 600 }}>Doctor Consultation Fee</td>
-                        <td>1</td>
+                        <td style={{ textAlign: 'center' }}>1</td>
                         <td>₹{consultationFee}</td>
                         <td style={{ fontWeight: 700 }}>₹{consultationFee}</td>
                         <td>-</td>
@@ -793,7 +1497,7 @@ const StaffRegistrationPage = () => {
                         <td style={{ fontWeight: 600, color: '#166534' }}>
                           Follow-up Visit (Zero Bill)
                         </td>
-                        <td>1</td>
+                        <td style={{ textAlign: 'center' }}>1</td>
                         <td>₹0</td>
                         <td style={{ fontWeight: 700, color: '#166534' }}>₹0</td>
                         <td>-</td>
@@ -803,17 +1507,54 @@ const StaffRegistrationPage = () => {
                     {/* Added Procedures */}
                     {billingProcedures.map((proc, idx) => (
                       <tr key={idx}>
-                        <td style={{ fontWeight: 600 }}>{proc.name}</td>
-                        <td>{proc.qty}</td>
-                        <td>₹{proc.price}</td>
-                        <td style={{ fontWeight: 700 }}>₹{proc.price * proc.qty}</td>
+                        <td>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={proc.name}
+                            onChange={(e) => handleUpdateProcedureItem(idx, 'name', e.target.value)}
+                            style={{ fontSize: '0.82rem', padding: '4px 8px', fontWeight: 600 }}
+                          />
+                          {proc.procedureId && proc.procedureId !== 'CUSTOM' && (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              Code: {proc.procedureId}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            min="1"
+                            className="form-input"
+                            value={proc.qty}
+                            onChange={(e) => handleUpdateProcedureItem(idx, 'qty', e.target.value)}
+                            style={{ fontSize: '0.82rem', padding: '4px 6px', textAlign: 'center', width: '100%' }}
+                          />
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>₹</span>
+                            <input
+                              type="number"
+                              min="0"
+                              className="form-input"
+                              value={proc.price}
+                              onChange={(e) => handleUpdateProcedureItem(idx, 'price', e.target.value)}
+                              style={{ fontSize: '0.82rem', padding: '4px 6px', width: '100%' }}
+                            />
+                          </div>
+                        </td>
+                        <td style={{ fontWeight: 700, color: 'var(--role-staff-primary)' }}>
+                          ₹{(Number(proc.price || 0) * Number(proc.qty || 1)).toLocaleString()}
+                        </td>
                         <td>
                           <button
                             type="button"
                             onClick={() => handleRemoveProcedureFromBill(idx)}
-                            style={{ background: 'none', border: 'none', color: 'var(--status-danger-text)', cursor: 'pointer' }}
+                            style={{ background: 'none', border: 'none', color: 'var(--status-danger-text)', cursor: 'pointer', padding: '4px' }}
+                            title="Remove item"
                           >
-                            <Trash2 size={14} />
+                            <Trash2 size={15} />
                           </button>
                         </td>
                       </tr>
@@ -917,14 +1658,23 @@ const StaffRegistrationPage = () => {
                 &larr; Back to Appointment
               </button>
 
-              <div style={{ display: 'flex', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setDraftInvoiceModalOpen(true)}
+                  className="btn btn-secondary btn-lg"
+                  style={{ borderColor: 'var(--role-staff-primary)', color: 'var(--role-staff-primary)' }}
+                  title="Preview and print bill for consultation and procedures stored under this patient ID"
+                >
+                  <Printer size={18} /> Print Bill (Draft / Preview)
+                </button>
                 <button
                   type="button"
                   onClick={handleRegisterAndBill}
                   className="btn btn-staff btn-lg"
                   disabled={submitting}
                 >
-                  <CreditCard size={18} /> {submitting ? 'Registering & Generating Documents...' : 'Register & Bill'}
+                  <CreditCard size={18} /> {submitting ? 'Processing Transaction...' : (isExistingPatient ? 'Update Patient & Generate Bill' : 'Register & Generate Bill')}
                 </button>
               </div>
             </div>
@@ -932,6 +1682,19 @@ const StaffRegistrationPage = () => {
         )}
       </div>
       </div>
+
+      {/* DRAFT INVOICE PREVIEW MODAL */}
+      <Modal
+        isOpen={draftInvoiceModalOpen}
+        onClose={() => setDraftInvoiceModalOpen(false)}
+        title={`Draft Bill Preview - Patient ID: ${assignedPatientId}`}
+        size="xl"
+      >
+        <InvoicePreview
+          invoice={draftInvoice}
+          onClose={() => setDraftInvoiceModalOpen(false)}
+        />
+      </Modal>
 
       {/* SUCCESS CONFIRMATION MODAL WITH WORKING PRINT BILL & PRINT RX OPTIONS */}
       <Modal
@@ -1057,6 +1820,7 @@ const StaffRegistrationPage = () => {
             <RXPreviewModal
               prescription={rxObject}
               consultation={{
+                appointmentId: transactionResult?.appointment?.appointmentId,
                 patientName: transactionResult?.patient?.name,
                 patientId: transactionResult?.patient?.patientId,
                 patientAge: transactionResult?.patient?.age,

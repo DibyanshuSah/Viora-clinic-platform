@@ -1,8 +1,8 @@
 const db = require('../config/database');
 
 class AppointmentService {
-  getAppointments(filters = {}) {
-    const { date, doctorId, status, type, patientId } = filters;
+  getAppointments(filters = {}, currentUser = null) {
+    const { date, doctorId, status, type, patientId, role, sortBy } = filters;
     let list = [...db.appointments];
 
     if (date) {
@@ -21,40 +21,47 @@ class AppointmentService {
       list = list.filter(a => a.appointmentType.toLowerCase() === type.toLowerCase());
     }
 
-    // Populate patient and doctor information
-    return list.map(apt => {
-      const patient = db.patients.find(p => p.patientId === apt.patientId) || {};
-      const doctor = db.doctors.find(d => d.doctorId === apt.doctorId) || {};
-      const bill = db.bills.find(b => b.appointmentId === apt.appointmentId || (b.patientId === apt.patientId && b.doctorId === apt.doctorId && b.createdAt?.startsWith(apt.date))) || null;
-      const consultation = db.consultations.find(c => c.appointmentId === apt.appointmentId || (c.patientId === apt.patientId && c.doctorId === apt.doctorId && c.createdAt?.startsWith(apt.date))) || null;
-      const prescription = consultation?.prescriptionId ? db.prescriptions.find(pr => pr.prescriptionId === consultation.prescriptionId) : null;
-      return {
-        ...apt,
-        patientName: patient.name || 'Unknown Patient',
-        patientAge: patient.age || null,
-        patientGender: patient.gender || null,
-        patientPhone: patient.phone || null,
-        patientDOB: patient.dateOfBirth || null,
-        patientAddress: patient.address || null,
-        allergies: patient.allergies || 'None',
-        medicalHistory: patient.medicalHistory || 'None',
-        doctorName: doctor.name || 'Unknown Doctor',
-        doctorSpecialization: doctor.specialization || '',
-        doctorQualification: doctor.qualification || '',
-        doctorRegNo: doctor.registrationNumber || '',
-        billId: bill ? bill.billId : null,
-        invoiceNumber: bill ? bill.invoiceNumber : null,
-        bill: bill || null,
-        consultation: consultation || null,
-        prescription: prescription || null
-      };
-    }).sort((a, b) => {
+    const populated = list.map(apt => this.populateAppointment(apt));
+
+    const isStaffRole =
+      (currentUser && currentUser.role && currentUser.role.toUpperCase() === 'STAFF') ||
+      (role && role.toUpperCase() === 'STAFF') ||
+      sortBy === 'recentRegisteredPatient';
+
+    if (isStaffRole) {
+      return populated.sort((a, b) => {
+        const timeA = a.patientCreatedAt ? new Date(a.patientCreatedAt).getTime() : 0;
+        const timeB = b.patientCreatedAt ? new Date(b.patientCreatedAt).getTime() : 0;
+        if (timeA !== timeB && !isNaN(timeA) && !isNaN(timeB)) {
+          return timeB - timeA; // most recent registered patient first
+        }
+        const patientDiff = (b.patientId || '').localeCompare(a.patientId || '', undefined, { numeric: true });
+        if (patientDiff !== 0) return patientDiff;
+
+        const aptTimeA = a.createdAt ? new Date(a.createdAt).getTime() : new Date(`${a.date}T${a.time}`).getTime();
+        const aptTimeB = b.createdAt ? new Date(b.createdAt).getTime() : new Date(`${b.date}T${b.time}`).getTime();
+        if (!isNaN(aptTimeA) && !isNaN(aptTimeB) && aptTimeA !== aptTimeB) {
+          return aptTimeB - aptTimeA;
+        }
+        return (b.appointmentId || '').localeCompare(a.appointmentId || '');
+      });
+    }
+
+    return populated.sort((a, b) => {
       // Sort by status priority (Waiting -> In Consultation -> Completed -> Cancelled) then time
       const statusOrder = { 'In Consultation': 1, 'Waiting': 2, 'Completed': 3, 'Cancelled': 4 };
       const diff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
       if (diff !== 0) return diff;
       return a.time.localeCompare(b.time);
     });
+  }
+
+  getAppointmentById(appointmentId) {
+    const apt = db.appointments.find(a => a.appointmentId === appointmentId);
+    if (!apt) {
+      throw { statusCode: 404, message: 'Appointment not found' };
+    }
+    return this.populateAppointment(apt);
   }
 
   getDoctorSchedules(dateStr) {
@@ -116,9 +123,9 @@ class AppointmentService {
         workingHours: doc.workingHours,
         breakTimes: doc.breakTimes,
         isWorkingToday: isWorkingDay,
-        consultationFee: doc.consultationRates.consultationFee,
-        doctorCut: doc.consultationRates.doctorCut,
-        clinicShare: doc.consultationRates.clinicShare,
+        consultationFee: doc.consultationRates?.consultationFee ?? doc.consultationFee ?? 800,
+        doctorCut: doc.consultationRates?.doctorCut ?? doc.doctorCut ?? 500,
+        clinicShare: doc.consultationRates?.clinicShare ?? doc.clinicShare ?? 300,
         totalBookedToday: todayAppointments.length,
         waitingCount,
         inConsultationCount,
@@ -201,8 +208,40 @@ class AppointmentService {
       patientAge: patient.age,
       patientGender: patient.gender,
       patientPhone: patient.phone,
+      patientCreatedAt: patient.createdAt || null,
+      patientRegisteredAt: patient.createdAt || null,
       doctorName: doctor.name,
       doctorSpecialization: doctor.specialization
+    };
+  }
+
+  populateAppointment(apt) {
+    const patient = db.patients.find(p => p.patientId === apt.patientId) || {};
+    const doctor = db.doctors.find(d => d.doctorId === apt.doctorId) || {};
+    const bill = db.bills.find(b => b.appointmentId === apt.appointmentId || (b.patientId === apt.patientId && b.doctorId === apt.doctorId && b.createdAt?.startsWith(apt.date))) || null;
+    const consultation = db.consultations.find(c => c.appointmentId === apt.appointmentId || (c.patientId === apt.patientId && c.doctorId === apt.doctorId && c.createdAt?.startsWith(apt.date))) || null;
+    const prescription = consultation?.prescriptionId ? db.prescriptions.find(pr => pr.prescriptionId === consultation.prescriptionId) : null;
+    return {
+      ...apt,
+      patientCreatedAt: patient.createdAt || null,
+      patientRegisteredAt: patient.createdAt || null,
+      patientName: patient.name || 'Unknown Patient',
+      patientAge: patient.age || null,
+      patientGender: patient.gender || null,
+      patientPhone: patient.phone || null,
+      patientDOB: patient.dateOfBirth || null,
+      patientAddress: patient.address || null,
+      allergies: patient.allergies || 'None',
+      medicalHistory: patient.medicalHistory || 'None',
+      doctorName: doctor.name || 'Unknown Doctor',
+      doctorSpecialization: doctor.specialization || '',
+      doctorQualification: doctor.qualification || '',
+      doctorRegNo: doctor.registrationNumber || '',
+      billId: bill ? bill.billId : null,
+      invoiceNumber: bill ? bill.invoiceNumber : null,
+      bill: bill || null,
+      consultation: consultation || null,
+      prescription: prescription || null
     };
   }
 
@@ -220,7 +259,7 @@ class AppointmentService {
     db.appointments[index].status = status;
     db.appointments[index].updatedAt = new Date().toISOString();
 
-    return db.appointments[index];
+    return this.populateAppointment(db.appointments[index]);
   }
 
   cancelAppointment(appointmentId) {

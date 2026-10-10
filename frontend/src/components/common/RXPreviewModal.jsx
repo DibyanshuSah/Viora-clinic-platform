@@ -2,6 +2,7 @@ import React from 'react';
 import { Printer, X } from 'lucide-react';
 import { useClinic } from '../../context/ClinicContext';
 import { printDocument } from '../../utils/printUtils';
+import { api } from '../../services/api';
 
 const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
   const { clinic } = useClinic();
@@ -39,12 +40,31 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
   const formattedDOB = patientDOB ? formatDate(patientDOB) : 'N/A';
   const chiefComplaintsText = rx.chiefComplaints || cons.chiefComplaint || (cons.procedureDetails ? `Procedure: ${cons.procedureDetails}` : '');
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    // status - 2: on RX printed - in consultation
+    const targetAptId = rx.appointmentId || cons.appointmentId;
+    const targetPatientId = rx.patientId || cons.patientId;
+
+    try {
+      if (targetAptId) {
+        await api.updateAppointmentStatus(targetAptId, 'In Consultation');
+      } else if (targetPatientId) {
+        const aptRes = await api.getAppointments({ patientId: targetPatientId });
+        if (aptRes.success && aptRes.data) {
+          const apt = aptRes.data.find(a => a.patientId === targetPatientId && a.status === 'Waiting');
+          if (apt) {
+            await api.updateAppointmentStatus(apt.appointmentId, 'In Consultation');
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Auto-status update on RX print:', err);
+    }
+
     if (onPrint) {
       onPrint();
-    } else {
-      printDocument('viora-rx-document', `RX - ${patientName} (${patientId})`);
     }
+    printDocument('viora-rx-document', `RX - ${patientName} (${patientId})`);
   };
 
   return (

@@ -240,11 +240,16 @@ class ConsultationService {
       }
     }
 
-    // Update appointment status to Completed if appointmentId is present
-    if (appointmentId) {
-      const aptIndex = db.appointments.findIndex(a => a.appointmentId === appointmentId);
+    // Update appointment status to Completed
+    let targetAptId = appointmentId;
+    if (!targetAptId) {
+      const todayApt = db.appointments.find(a => a.patientId === patientId && (a.date === todayStr || (a.createdAt && a.createdAt.startsWith(todayStr))));
+      if (todayApt) targetAptId = todayApt.appointmentId;
+    }
+    if (targetAptId) {
+      const aptIndex = db.appointments.findIndex(a => a.appointmentId === targetAptId);
       if (aptIndex !== -1) {
-        db.appointments[aptIndex].status = 'Completed';
+        db.appointments[aptIndex].status = status || 'Completed';
         db.appointments[aptIndex].updatedAt = new Date().toISOString();
       }
     }

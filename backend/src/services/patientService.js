@@ -1,6 +1,10 @@
 const db = require('../config/database');
 
 class PatientService {
+  getNextPatientId() {
+    return db.peekNextPatientId();
+  }
+
   getAllPatients(query = '') {
     let list = [...db.patients];
     if (query) {

@@ -30,6 +30,7 @@ class DatabaseStore {
     this.consultations = JSON.parse(JSON.stringify(consultationsSeed));
     this.prescriptions = JSON.parse(JSON.stringify(prescriptionsSeed));
     this.bills = JSON.parse(JSON.stringify(billsSeed));
+    this.billingLogs = [];
 
     this.counters = {
       patient: 1001,
@@ -44,7 +45,28 @@ class DatabaseStore {
     };
   }
 
-  // ID GENERATORS
+  // ID GENERATORS & PREVIEWS
+  peekNextPatientId() {
+    return `PAT-${this.counters.patient}`;
+  }
+
+  logBillingAction({ action, billId, invoiceNumber, patientId, patientName, total, details, user }) {
+    const log = {
+      logId: `LOG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      action, // 'GENERATED' | 'EDITED' | 'PAYMENT_UPDATED' | 'DELETED' | 'PATIENT_BILLS_DELETED'
+      billId: billId || null,
+      invoiceNumber: invoiceNumber || null,
+      patientId: patientId || null,
+      patientName: patientName || 'Unknown Patient',
+      total: total !== undefined && total !== null ? Number(total) : null,
+      details: details || '',
+      performedBy: user ? `${user.name} (${user.role})` : 'System',
+      timestamp: new Date().toISOString()
+    };
+    this.billingLogs.unshift(log);
+    return log;
+  }
+
   nextPatientId() {
     const id = `PAT-${this.counters.patient}`;
     this.counters.patient += 1;
@@ -90,9 +112,10 @@ class DatabaseStore {
 
   nextBillId() {
     const year = new Date().getFullYear();
-    const id = `BILL-${year}-${String(this.counters.bill).padStart(3, '0')}`;
+    const billId = `BILL-${year}-${String(this.counters.bill).padStart(3, '0')}`;
+    const invoiceNumber = `INV-VIO-${year}-${String(this.counters.bill).padStart(4, '0')}`;
     this.counters.bill += 1;
-    return id;
+    return { billId, invoiceNumber, toString() { return billId; } };
   }
 
   nextInvoiceNumber() {

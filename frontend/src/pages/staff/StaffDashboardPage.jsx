@@ -31,15 +31,41 @@ const StaffDashboardPage = () => {
     try {
       setLoading(true);
       const [aptRes, docRes, patRes, billRes] = await Promise.all([
-        api.getAppointments({ date: todayStr }),
+        api.getAppointments({ date: todayStr, role: 'STAFF', sortBy: 'recentRegisteredPatient' }),
         api.getDoctorSchedules(todayStr),
         api.getPatients(),
         api.getBills({ date: todayStr })
       ]);
 
-      if (aptRes.success) setAppointments(aptRes.data);
-      if (docRes.success) setDoctors(docRes.data);
       if (patRes.success) setPatients(patRes.data.slice(0, 5));
+
+      if (aptRes.success) {
+        const patientMap = new Map((patRes?.data || []).map((p) => [p.patientId, p]));
+        const sortedAppointments = [...aptRes.data].map((apt) => {
+          const pat = patientMap.get(apt.patientId);
+          return {
+            ...apt,
+            patientCreatedAt: apt.patientCreatedAt || pat?.createdAt || null
+          };
+        }).sort((a, b) => {
+          const timeA = a.patientCreatedAt ? new Date(a.patientCreatedAt).getTime() : 0;
+          const timeB = b.patientCreatedAt ? new Date(b.patientCreatedAt).getTime() : 0;
+          if (timeA !== timeB && !isNaN(timeA) && !isNaN(timeB)) {
+            return timeB - timeA; // most recent registered patient first
+          }
+          const patientDiff = (b.patientId || '').localeCompare(a.patientId || '', undefined, { numeric: true });
+          if (patientDiff !== 0) return patientDiff;
+
+          const aptTimeA = a.createdAt ? new Date(a.createdAt).getTime() : new Date(`${a.date}T${a.time}`).getTime();
+          const aptTimeB = b.createdAt ? new Date(b.createdAt).getTime() : new Date(`${b.date}T${b.time}`).getTime();
+          if (!isNaN(aptTimeA) && !isNaN(aptTimeB) && aptTimeA !== aptTimeB) {
+            return aptTimeB - aptTimeA;
+          }
+          return (b.appointmentId || '').localeCompare(a.appointmentId || '');
+        });
+        setAppointments(sortedAppointments);
+      }
+      if (docRes.success) setDoctors(docRes.data);
       if (billRes.success) setBills(billRes.data);
     } catch (err) {
       console.error('Front desk data error:', err);
@@ -197,7 +223,14 @@ const StaffDashboardPage = () => {
                       </td>
                       <td>
                         <div style={{ fontWeight: 700 }}>{apt.patientName}</div>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{apt.patientId}</span>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          {apt.patientId}
+                          {apt.patientCreatedAt && (
+                            <span style={{ color: 'var(--role-staff-primary)', marginLeft: '6px', fontWeight: 600 }}>
+                              &bull; Reg: {new Date(apt.patientCreatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{apt.doctorName}</div>

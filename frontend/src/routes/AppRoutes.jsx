@@ -18,6 +18,7 @@ import StaffManagementPage from '../pages/admin/StaffManagementPage';
 import AnalyticsPage from '../pages/admin/AnalyticsPage';
 import ClinicProfilePage from '../pages/admin/ClinicProfilePage';
 import AdminSettingsPage from '../pages/admin/AdminSettingsPage';
+import AdminBillingManagementPage from '../pages/admin/AdminBillingManagementPage';
 
 // Doctor Pages
 import DoctorAppointmentsPage from '../pages/doctor/DoctorAppointmentsPage';
@@ -66,6 +67,7 @@ const AppRoutes = () => {
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<AdminDashboardPage />} />
         <Route path="doctors" element={<DoctorManagementPage />} />
+        <Route path="billing" element={<AdminBillingManagementPage />} />
         <Route path="list-management" element={<ListManagementPage />} />
         <Route path="staff" element={<StaffManagementPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />

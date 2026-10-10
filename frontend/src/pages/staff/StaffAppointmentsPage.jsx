@@ -42,26 +42,92 @@ const StaffAppointmentsPage = () => {
 
   const [availableSlots, setAvailableSlots] = useState([]);
 
+  const defaultSlots = [
+    { time: '09:00', available: true },
+    { time: '09:30', available: true },
+    { time: '10:00', available: true },
+    { time: '10:30', available: true },
+    { time: '11:00', available: true },
+    { time: '11:30', available: true },
+    { time: '12:00', available: true },
+    { time: '14:00', available: true },
+    { time: '14:30', available: true },
+    { time: '15:00', available: true },
+    { time: '15:30', available: true },
+    { time: '16:00', available: true },
+    { time: '16:30', available: true },
+    { time: '17:00', available: true }
+  ];
+
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [aptRes, patRes, docRes, procRes] = await Promise.all([
-        api.getAppointments(),
+      const [aptRes, patRes, allDocsRes, schedRes, procRes] = await Promise.all([
+        api.getAppointments({ role: 'STAFF', sortBy: 'recentRegisteredPatient' }),
         api.getPatients(),
-        api.getDoctorSchedules(todayStr),
+        api.getDoctors().catch(() => ({ success: false, data: [] })),
+        api.getDoctorSchedules(todayStr).catch(() => ({ success: false, data: [] })),
         api.getProcedures()
       ]);
 
-      if (aptRes.success) setAppointments(aptRes.data);
       if (patRes.success) setPatients(patRes.data);
-      if (docRes.success) {
-        setDoctors(docRes.data);
-        if (docRes.data.length > 0 && !formData.doctorId) {
-          const firstDoc = docRes.data[0];
+
+      if (aptRes.success) {
+        const patientMap = new Map((patRes?.data || []).map((p) => [p.patientId, p]));
+        const sortedAppointments = [...aptRes.data].map((apt) => {
+          const pat = patientMap.get(apt.patientId);
+          return {
+            ...apt,
+            patientCreatedAt: apt.patientCreatedAt || pat?.createdAt || null
+          };
+        }).sort((a, b) => {
+          const timeA = a.patientCreatedAt ? new Date(a.patientCreatedAt).getTime() : 0;
+          const timeB = b.patientCreatedAt ? new Date(b.patientCreatedAt).getTime() : 0;
+          if (timeA !== timeB && !isNaN(timeA) && !isNaN(timeB)) {
+            return timeB - timeA; // most recent registered patient first
+          }
+          const patientDiff = (b.patientId || '').localeCompare(a.patientId || '', undefined, { numeric: true });
+          if (patientDiff !== 0) return patientDiff;
+
+          const aptTimeA = a.createdAt ? new Date(a.createdAt).getTime() : new Date(`${a.date}T${a.time}`).getTime();
+          const aptTimeB = b.createdAt ? new Date(b.createdAt).getTime() : new Date(`${b.date}T${b.time}`).getTime();
+          if (!isNaN(aptTimeA) && !isNaN(aptTimeB) && aptTimeA !== aptTimeB) {
+            return aptTimeB - aptTimeA;
+          }
+          return (b.appointmentId || '').localeCompare(a.appointmentId || '');
+        });
+        setAppointments(sortedAppointments);
+      }
+
+      let combinedDoctors = [];
+      if (allDocsRes.success && allDocsRes.data?.length > 0) {
+        const schedMap = new Map((schedRes?.data || []).map((s) => [s.doctorId, s]));
+        combinedDoctors = allDocsRes.data
+          .filter((d) => d.status === 'Active')
+          .map((doc) => {
+            const sched = schedMap.get(doc.doctorId);
+            const fee = doc.consultationFee || doc.consultationRates?.consultationFee || sched?.consultationFee || 800;
+            const slots = (sched?.slots && sched.slots.length > 0) ? sched.slots : defaultSlots;
+            return {
+              ...doc,
+              consultationFee: fee,
+              slots,
+              isWorkingToday: sched ? sched.isWorkingToday : true
+            };
+          });
+      } else if (schedRes.success && schedRes.data?.length > 0) {
+        combinedDoctors = schedRes.data;
+      }
+
+      if (combinedDoctors.length > 0) {
+        setDoctors(combinedDoctors);
+        if (!formData.doctorId) {
+          const firstDoc = combinedDoctors[0];
           setFormData((prev) => ({ ...prev, doctorId: firstDoc.doctorId }));
-          setAvailableSlots(firstDoc.slots || []);
+          setAvailableSlots(firstDoc.slots || defaultSlots);
         }
       }
+
       if (procRes.success) setProcedures(procRes.data);
     } catch (err) {
       showToast(err.message || 'Failed to load appointments', 'error');
@@ -128,6 +194,66 @@ const StaffAppointmentsPage = () => {
     }
   };
 
+  const handleStatusChange = async (appointmentId, newStatus) => {
+    try {
+      const res = await api.updateAppointmentStatus(appointmentId, newStatus);
+      if (res.success) {
+        setAppointments((prev) =>
+          prev.map((a) => (a.appointmentId === appointmentId ? { ...a, status: newStatus } : a))
+        );
+        showToast(`Appointment status updated to "${newStatus}"`, 'success');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to update status', 'error');
+    }
+  };
+
+  const handleEndAppointment = async (appointment) => {
+    try {
+      const res = await api.updateAppointmentStatus(appointment.appointmentId, 'Completed');
+      if (res.success) {
+        setAppointments((prev) =>
+          prev.map((a) => (a.appointmentId === appointment.appointmentId ? { ...a, status: 'Completed' } : a))
+        );
+        showToast(`Visit ended and marked as Completed for ${appointment.patientName}`, 'success');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to complete appointment', 'error');
+    }
+  };
+
+  const handleOpenRX = async (appointment) => {
+    setSelectedAppointmentForRX(appointment);
+    setRxModalOpen(true);
+    // status - 2: on RX printed / opened, transition to "In Consultation"
+    if (appointment.status === 'Waiting') {
+      try {
+        await api.updateAppointmentStatus(appointment.appointmentId, 'In Consultation');
+        setAppointments((prev) =>
+          prev.map((a) => (a.appointmentId === appointment.appointmentId ? { ...a, status: 'In Consultation' } : a))
+        );
+        showToast(`Status transitioned to "In Consultation" on RX access`, 'info');
+      } catch (err) {
+        console.warn('Status transition note:', err.message);
+      }
+    }
+  };
+
+  const getStatusSelectStyle = (status) => {
+    switch (status) {
+      case 'Waiting':
+        return { backgroundColor: '#FEF3C7', color: '#92400E', borderColor: '#F59E0B' };
+      case 'In Consultation':
+        return { backgroundColor: '#EFF6FF', color: '#1E40AF', borderColor: '#3B82F6' };
+      case 'Completed':
+        return { backgroundColor: '#DCFCE7', color: '#166534', borderColor: '#22C55E' };
+      case 'Cancelled':
+        return { backgroundColor: '#FEE2E2', color: '#991B1B', borderColor: '#EF4444' };
+      default:
+        return { backgroundColor: '#F1F5F9', color: '#475569', borderColor: '#CBD5E1' };
+    }
+  };
+
   const columns = [
     {
       header: 'Queue #',
@@ -154,6 +280,11 @@ const StaffAppointmentsPage = () => {
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
             {row.patientId} &bull; {row.patientAge} yrs &bull; {row.patientGender}
           </div>
+          {row.patientCreatedAt && (
+            <div style={{ fontSize: '0.7rem', color: 'var(--role-staff-primary)', fontWeight: 600, marginTop: '2px' }}>
+              Registered: {new Date(row.patientCreatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
         </div>
       )
     },
@@ -190,24 +321,45 @@ const StaffAppointmentsPage = () => {
     },
     {
       header: 'Status',
-      render: (row) => <StatusBadge status={row.status} />
+      render: (row) => (
+        <select
+          className="form-select"
+          value={row.status}
+          onChange={(e) => handleStatusChange(row.appointmentId, e.target.value)}
+          style={{
+            fontSize: '0.75rem',
+            fontWeight: 700,
+            padding: '3px 8px',
+            height: '28px',
+            borderRadius: '14px',
+            border: '1.5px solid',
+            cursor: 'pointer',
+            ...getStatusSelectStyle(row.status)
+          }}
+          title="Change Status (Front Desk or Doctor)"
+        >
+          <option value="Waiting">Waiting</option>
+          <option value="In Consultation">In Consultation</option>
+          <option value="Completed">Completed</option>
+          <option value="Cancelled">Cancelled</option>
+        </select>
+      )
     },
     {
-      header: 'Actions',
+      header: 'Actions (RX • Bill • End • Cancel)',
       render: (row) => (
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          {/* 1. RX */}
           <button
-            onClick={() => {
-              setSelectedAppointmentForRX(row);
-              setRxModalOpen(true);
-            }}
+            onClick={() => handleOpenRX(row)}
             className="btn btn-doctor btn-sm"
-            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-            title="Preview & Print Prescription (RX)"
+            style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+            title="Preview & Print Prescription (RX) - transitions to In Consultation"
           >
             <Printer size={13} /> RX
           </button>
           
+          {/* 2. Bill */}
           <button
             onClick={async () => {
               if (row.bill) {
@@ -228,24 +380,55 @@ const StaffAppointmentsPage = () => {
               }
             }}
             className="btn btn-staff btn-sm"
-            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-            title="Preview & Print Tax Invoice"
+            style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+            title="Preview & Print Tax Invoice (Bill)"
           >
             <FileText size={13} /> Bill
           </button>
 
-          {row.status !== 'Completed' && row.status !== 'Cancelled' && (
-            <button
-              onClick={() => {
-                setAppointmentToCancel(row);
-                setCancelModalOpen(true);
-              }}
-              className="btn btn-secondary btn-sm"
-              style={{ color: 'var(--status-danger-text)', padding: '4px 8px', fontSize: '0.75rem' }}
-            >
-              Cancel
-            </button>
-          )}
+          {/* 3. End */}
+          <button
+            onClick={() => handleEndAppointment(row)}
+            disabled={row.status === 'Completed' || row.status === 'Cancelled'}
+            className="btn btn-sm"
+            style={{
+              padding: '4px 8px',
+              fontSize: '0.75rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              backgroundColor: row.status === 'Completed' ? '#E2E8F0' : '#DCFCE7',
+              color: row.status === 'Completed' ? '#64748B' : '#166534',
+              border: `1px solid ${row.status === 'Completed' ? '#CBD5E1' : '#BBF7D0'}`,
+              fontWeight: 700,
+              cursor: row.status === 'Completed' ? 'default' : 'pointer'
+            }}
+            title={row.status === 'Completed' ? 'Visit Completed' : 'End visit and mark as Completed'}
+          >
+            <CheckCircle2 size={13} /> {row.status === 'Completed' ? 'Ended' : 'End'}
+          </button>
+
+          {/* 4. Cancel */}
+          <button
+            onClick={() => {
+              setAppointmentToCancel(row);
+              setCancelModalOpen(true);
+            }}
+            disabled={row.status === 'Completed' || row.status === 'Cancelled'}
+            className="btn btn-secondary btn-sm"
+            style={{
+              color: row.status === 'Cancelled' ? '#94A3B8' : 'var(--status-danger-text)',
+              padding: '4px 8px',
+              fontSize: '0.75rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              opacity: (row.status === 'Completed' || row.status === 'Cancelled') ? 0.6 : 1
+            }}
+            title="Cancel Appointment"
+          >
+            <XCircle size={13} /> Cancel
+          </button>
         </div>
       )
     }
@@ -330,11 +513,15 @@ const StaffAppointmentsPage = () => {
               onChange={(e) => handleDoctorChange(e.target.value)}
               required
             >
-              {doctors.map((d) => (
-                <option key={d.doctorId} value={d.doctorId}>
-                  {d.name} ({d.specialization}) - Fee: ₹{d.consultationFee}
-                </option>
-              ))}
+              {doctors.length === 0 ? (
+                <option value="">No doctors registered yet (Add doctor in Admin &gt; Doctor Management)</option>
+              ) : (
+                doctors.map((d) => (
+                  <option key={d.doctorId} value={d.doctorId}>
+                    {d.name} ({d.specialization}) - Fee: ₹{d.consultationFee}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 
@@ -435,6 +622,7 @@ const StaffAppointmentsPage = () => {
           <RXPreviewModal
             prescription={{
               prescriptionId: selectedAppointmentForRX.prescription?.prescriptionId || `RX-${selectedAppointmentForRX.patientId}`,
+              appointmentId: selectedAppointmentForRX.appointmentId,
               patientName: selectedAppointmentForRX.patientName,
               patientId: selectedAppointmentForRX.patientId,
               patientAge: selectedAppointmentForRX.patientAge,
@@ -456,6 +644,7 @@ const StaffAppointmentsPage = () => {
               createdAt: selectedAppointmentForRX.createdAt
             }}
             consultation={selectedAppointmentForRX.consultation || {
+              appointmentId: selectedAppointmentForRX.appointmentId,
               patientName: selectedAppointmentForRX.patientName,
               patientId: selectedAppointmentForRX.patientId,
               patientAge: selectedAppointmentForRX.patientAge,
@@ -467,6 +656,11 @@ const StaffAppointmentsPage = () => {
               doctorRegNo: selectedAppointmentForRX.doctorRegNo,
               procedureDetails: selectedAppointmentForRX.procedureName,
               chiefComplaint: selectedAppointmentForRX.procedureName ? `Procedure: ${selectedAppointmentForRX.procedureName}` : ''
+            }}
+            onPrint={() => {
+              setAppointments(prev =>
+                prev.map(a => a.appointmentId === selectedAppointmentForRX.appointmentId ? { ...a, status: 'In Consultation' } : a)
+              );
             }}
             onClose={() => {
               setRxModalOpen(false);

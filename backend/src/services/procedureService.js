@@ -14,19 +14,33 @@ class ProcedureService {
   }
 
   createProcedure(data) {
-    const { name, defaultPrice, defaultDoctorCut = 0, description = '', status = 'Active' } = data;
+    const { name, defaultPrice, defaultDoctorCut, description = '', status = 'Active' } = data;
     if (!name || defaultPrice === undefined) {
       throw { statusCode: 400, message: 'Procedure Name and Default Price are required' };
+    }
+
+    const trimmedName = name.trim();
+    // Check if procedure already exists by name (case-insensitive)
+    const existing = db.procedures.find(p => p.name && p.name.trim().toLowerCase() === trimmedName.toLowerCase());
+    if (existing) {
+      existing.defaultPrice = Number(defaultPrice);
+      if (defaultDoctorCut !== undefined) existing.defaultDoctorCut = Number(defaultDoctorCut);
+      if (description) existing.description = description.trim();
+      existing.status = 'Active';
+      existing.updatedAt = new Date().toISOString();
+      return existing;
     }
 
     const procedureId = db.nextProcedureId();
     const newProcedure = {
       procedureId,
-      name: name.trim(),
+      name: trimmedName,
       defaultPrice: Number(defaultPrice),
-      defaultDoctorCut: Number(defaultDoctorCut),
-      description: description.trim(),
-      status
+      defaultDoctorCut: defaultDoctorCut !== undefined ? Number(defaultDoctorCut) : Math.round(Number(defaultPrice) * 0.3),
+      description: description ? description.trim() : '',
+      status,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     db.procedures.push(newProcedure);

@@ -53,14 +53,20 @@ class AuthService {
   async switchDemoRole(targetRole) {
     let user;
     if (targetRole === 'ADMIN') {
-      user = db.users.find(u => u.role === 'ADMIN');
+      user = db.users.find(u => u.role === 'ADMIN' && u.status === 'Active');
     } else if (targetRole === 'DOCTOR') {
-      user = db.users.find(u => u.role === 'DOCTOR');
+      user = db.users.find(u => u.role === 'DOCTOR' && u.status === 'Active');
     } else if (targetRole === 'STAFF') {
-      user = db.users.find(u => u.role === 'STAFF');
+      user = db.users.find(u => u.role === 'STAFF' && u.status === 'Active');
     }
 
     if (!user) {
+      if (targetRole === 'DOCTOR') {
+        throw { statusCode: 404, message: 'No doctor accounts registered yet. Please add a doctor in Admin > Doctor Management first.' };
+      }
+      if (targetRole === 'STAFF') {
+        throw { statusCode: 404, message: 'No active staff accounts registered. Please add a staff member in Admin > Staff Management first.' };
+      }
       throw { statusCode: 404, message: `No demo account found for role ${targetRole}` };
     }
 

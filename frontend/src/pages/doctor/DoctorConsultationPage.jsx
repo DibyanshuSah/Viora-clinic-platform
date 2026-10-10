@@ -186,6 +186,13 @@ const DoctorConsultationPage = () => {
           if (histRes.success) setPatientHistory(histRes.data);
         }
         if (completeAndExit) {
+          if (appointment?.appointmentId) {
+            try {
+              await api.updateAppointmentStatus(appointment.appointmentId, 'Completed');
+            } catch (statusErr) {
+              console.warn('Appointment status update note:', statusErr);
+            }
+          }
           navigate('/doctor/appointments');
         }
       }
@@ -194,6 +201,18 @@ const DoctorConsultationPage = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleOpenRXModal = async () => {
+    if (appointment?.appointmentId && appointment?.status === 'Waiting') {
+      try {
+        await api.updateAppointmentStatus(appointment.appointmentId, 'In Consultation');
+        setAppointment((prev) => (prev ? { ...prev, status: 'In Consultation' } : prev));
+      } catch (err) {
+        console.warn('Status update note:', err);
+      }
+    }
+    setRxModalOpen(true);
   };
 
   if (loading) {
@@ -263,10 +282,10 @@ const DoctorConsultationPage = () => {
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             type="button"
-            onClick={() => setRxModalOpen(true)}
+            onClick={handleOpenRXModal}
             className="btn btn-secondary btn-sm"
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-            title="Preview & Print Prescription"
+            title="Preview & Print Prescription (transitions queue status to In Consultation)"
           >
             <Printer size={15} /> Preview & Print RX
           </button>
@@ -919,6 +938,7 @@ const DoctorConsultationPage = () => {
         <RXPreviewModal
           prescription={{
             prescriptionId: consultationId ? `RX-${consultationId}` : `RX-${patient?.patientId || 'CONS'}`,
+            appointmentId: appointment?.appointmentId,
             patientName: patient?.name,
             patientId: patient?.patientId,
             patientAge: patient?.age,
@@ -943,6 +963,7 @@ const DoctorConsultationPage = () => {
             createdAt: new Date().toISOString()
           }}
           consultation={{
+            appointmentId: appointment?.appointmentId,
             patientName: patient?.name,
             patientId: patient?.patientId,
             patientAge: patient?.age,
@@ -960,6 +981,16 @@ const DoctorConsultationPage = () => {
             medicines,
             advice,
             followUpDate
+          }}
+          onPrint={async () => {
+            if (appointment?.appointmentId && appointment?.status === 'Waiting') {
+              try {
+                await api.updateAppointmentStatus(appointment.appointmentId, 'In Consultation');
+                setAppointment((prev) => (prev ? { ...prev, status: 'In Consultation' } : prev));
+              } catch (err) {
+                console.warn(err);
+              }
+            }
           }}
           onClose={() => setRxModalOpen(false)}
         />

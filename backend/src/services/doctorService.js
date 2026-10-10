@@ -5,8 +5,19 @@ class DoctorService {
   getAllDoctors() {
     return db.doctors.map(doc => {
       const user = db.users.find(u => u.id === doc.userId);
+      const fee = doc.consultationRates?.consultationFee ?? doc.consultationFee ?? 800;
+      const cut = doc.consultationRates?.doctorCut ?? doc.doctorCut ?? 500;
+      const share = doc.consultationRates?.clinicShare ?? doc.clinicShare ?? (fee - cut);
       return {
         ...doc,
+        consultationFee: fee,
+        doctorCut: cut,
+        clinicShare: share,
+        consultationRates: {
+          consultationFee: fee,
+          doctorCut: cut,
+          clinicShare: share
+        },
         username: user ? user.username : null
       };
     });
@@ -18,8 +29,19 @@ class DoctorService {
       throw { statusCode: 404, message: 'Doctor not found' };
     }
     const user = db.users.find(u => u.id === doc.userId);
+    const fee = doc.consultationRates?.consultationFee ?? doc.consultationFee ?? 800;
+    const cut = doc.consultationRates?.doctorCut ?? doc.doctorCut ?? 500;
+    const share = doc.consultationRates?.clinicShare ?? doc.clinicShare ?? (fee - cut);
     return {
       ...doc,
+      consultationFee: fee,
+      doctorCut: cut,
+      clinicShare: share,
+      consultationRates: {
+        consultationFee: fee,
+        doctorCut: cut,
+        clinicShare: share
+      },
       username: user ? user.username : null
     };
   }
@@ -69,6 +91,10 @@ class DoctorService {
     };
     db.users.push(newUser);
 
+    const fee = Number(consultationFee) || 0;
+    const cut = Number(doctorCut) || 0;
+    const share = Number(clinicShare) || (fee - cut);
+
     const newDoctor = {
       doctorId,
       userId,
@@ -79,10 +105,13 @@ class DoctorService {
       registrationNumber: registrationNumber ? registrationNumber.trim() : '',
       phone: phone.trim(),
       email: email.trim(),
+      consultationFee: fee,
+      doctorCut: cut,
+      clinicShare: share,
       consultationRates: {
-        consultationFee: Number(consultationFee) || 0,
-        doctorCut: Number(doctorCut) || 0,
-        clinicShare: Number(clinicShare) || (Number(consultationFee) - Number(doctorCut))
+        consultationFee: fee,
+        doctorCut: cut,
+        clinicShare: share
       },
       procedureRates: procedureRates || {},
       workingDays: Array.isArray(workingDays) ? workingDays : ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
@@ -115,16 +144,27 @@ class DoctorService {
     const currentDoc = db.doctors[index];
     const userIndex = db.users.findIndex(u => u.id === currentDoc.userId);
 
+    const defaultFee = currentDoc.consultationRates?.consultationFee ?? currentDoc.consultationFee ?? 800;
+    const defaultCut = currentDoc.consultationRates?.doctorCut ?? currentDoc.doctorCut ?? 500;
+    const defaultShare = currentDoc.consultationRates?.clinicShare ?? currentDoc.clinicShare ?? (defaultFee - defaultCut);
+
+    const fee = Number(data.consultationFee !== undefined ? data.consultationFee : defaultFee);
+    const cut = Number(data.doctorCut !== undefined ? data.doctorCut : defaultCut);
+    const share = Number(data.clinicShare !== undefined ? data.clinicShare : defaultShare);
+
     // Update doctor record
     db.doctors[index] = {
       ...currentDoc,
       ...data,
       doctorId: currentDoc.doctorId,
       userId: currentDoc.userId,
+      consultationFee: fee,
+      doctorCut: cut,
+      clinicShare: share,
       consultationRates: {
-        consultationFee: Number(data.consultationFee !== undefined ? data.consultationFee : currentDoc.consultationRates.consultationFee),
-        doctorCut: Number(data.doctorCut !== undefined ? data.doctorCut : currentDoc.consultationRates.doctorCut),
-        clinicShare: Number(data.clinicShare !== undefined ? data.clinicShare : currentDoc.consultationRates.clinicShare)
+        consultationFee: fee,
+        doctorCut: cut,
+        clinicShare: share
       },
       workingHours: data.workingHours ? {
         start: data.workingHours.start || currentDoc.workingHours.start,

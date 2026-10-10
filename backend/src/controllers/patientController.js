@@ -2,6 +2,15 @@ const patientService = require('../services/patientService');
 const { successResponse } = require('../utils/responseHandler');
 
 class PatientController {
+  getNextPatientId(req, res, next) {
+    try {
+      const nextPatientId = patientService.getNextPatientId();
+      return successResponse(res, 'Next patient ID preview retrieved', { nextPatientId });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   getAllPatients(req, res, next) {
     try {
       const { search } = req.query;

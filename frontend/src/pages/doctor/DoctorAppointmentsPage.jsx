@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, PlayCircle, Clock, CheckCircle2, User, FileText, Printer } from 'lucide-react';
+import { Calendar, PlayCircle, Clock, CheckCircle2, User, FileText, Printer, XCircle, CreditCard } from 'lucide-react';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -8,6 +8,7 @@ import DataTable from '../../components/common/DataTable';
 import StatusBadge from '../../components/common/StatusBadge';
 import Modal from '../../components/common/Modal';
 import RXPreviewModal from '../../components/common/RXPreviewModal';
+import InvoicePreview from '../../components/common/InvoicePreview';
 import { LoadingState } from '../../components/common/LoadingState';
 
 const DoctorAppointmentsPage = () => {
@@ -17,6 +18,8 @@ const DoctorAppointmentsPage = () => {
   const [statusFilter, setStatusFilter] = useState('All');
   const [rxModalOpen, setRxModalOpen] = useState(false);
   const [selectedAppointmentForRX, setSelectedAppointmentForRX] = useState(null);
+  const [billModalOpen, setBillModalOpen] = useState(false);
+  const [selectedBillForPrint, setSelectedBillForPrint] = useState(null);
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -44,6 +47,83 @@ const DoctorAppointmentsPage = () => {
   useEffect(() => {
     fetchDoctorAppointments();
   }, [user]);
+
+  const handleStatusChange = async (appointmentId, newStatus) => {
+    try {
+      const res = await api.updateAppointmentStatus(appointmentId, newStatus);
+      if (res.success) {
+        setAppointments((prev) =>
+          prev.map((a) => (a.appointmentId === appointmentId ? { ...a, status: newStatus } : a))
+        );
+        showToast(`Appointment status updated to "${newStatus}"`, 'success');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to update status', 'error');
+    }
+  };
+
+  const handleEndAppointment = async (appointment) => {
+    try {
+      const res = await api.updateAppointmentStatus(appointment.appointmentId, 'Completed');
+      if (res.success) {
+        setAppointments((prev) =>
+          prev.map((a) => (a.appointmentId === appointment.appointmentId ? { ...a, status: 'Completed' } : a))
+        );
+        showToast(`Consultation ended and marked as Completed for ${appointment.patientName}`, 'success');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to complete appointment', 'error');
+    }
+  };
+
+  const handleOpenRX = async (appointment) => {
+    setSelectedAppointmentForRX(appointment);
+    setRxModalOpen(true);
+    // status - 2: on RX printed / opened, transition to "In Consultation"
+    if (appointment.status === 'Waiting') {
+      try {
+        await api.updateAppointmentStatus(appointment.appointmentId, 'In Consultation');
+        setAppointments((prev) =>
+          prev.map((a) => (a.appointmentId === appointment.appointmentId ? { ...a, status: 'In Consultation' } : a))
+        );
+        showToast(`Status transitioned to "In Consultation" on RX access`, 'info');
+      } catch (err) {
+        console.warn('Status transition note:', err.message);
+      }
+    }
+  };
+
+  const handleCancelAppointment = async (appointment) => {
+    if (!window.confirm(`Are you sure you want to cancel the appointment for ${appointment.patientName}?`)) {
+      return;
+    }
+    try {
+      const res = await api.cancelAppointment(appointment.appointmentId);
+      if (res.success) {
+        setAppointments((prev) =>
+          prev.map((a) => (a.appointmentId === appointment.appointmentId ? { ...a, status: 'Cancelled' } : a))
+        );
+        showToast(`Appointment cancelled for ${appointment.patientName}`, 'info');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to cancel appointment', 'error');
+    }
+  };
+
+  const getStatusSelectStyle = (status) => {
+    switch (status) {
+      case 'Waiting':
+        return { backgroundColor: '#FEF3C7', color: '#92400E', borderColor: '#F59E0B' };
+      case 'In Consultation':
+        return { backgroundColor: '#EFF6FF', color: '#1E40AF', borderColor: '#3B82F6' };
+      case 'Completed':
+        return { backgroundColor: '#DCFCE7', color: '#166534', borderColor: '#22C55E' };
+      case 'Cancelled':
+        return { backgroundColor: '#FEE2E2', color: '#991B1B', borderColor: '#EF4444' };
+      default:
+        return { backgroundColor: '#F1F5F9', color: '#475569', borderColor: '#CBD5E1' };
+    }
+  };
 
   const handleStartConsultation = async (appointment) => {
     try {
@@ -135,43 +215,121 @@ const DoctorAppointmentsPage = () => {
     },
     {
       header: 'Status',
-      render: (row) => <StatusBadge status={row.status} />
+      render: (row) => (
+        <select
+          className="form-select"
+          value={row.status}
+          onChange={(e) => handleStatusChange(row.appointmentId, e.target.value)}
+          style={{
+            fontSize: '0.75rem',
+            fontWeight: 700,
+            padding: '3px 8px',
+            height: '28px',
+            borderRadius: '14px',
+            border: '1.5px solid',
+            cursor: 'pointer',
+            ...getStatusSelectStyle(row.status)
+          }}
+          title="Change Status (Doctor or Front Desk)"
+        >
+          <option value="Waiting">Waiting</option>
+          <option value="In Consultation">In Consultation</option>
+          <option value="Completed">Completed</option>
+          <option value="Cancelled">Cancelled</option>
+        </select>
+      )
     },
     {
-      header: 'Clinical Action',
+      header: 'Actions (RX • Bill • End • Cancel)',
       render: (row) => (
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          {/* 1. RX */}
           <button
-            onClick={() => {
-              setSelectedAppointmentForRX(row);
-              setRxModalOpen(true);
-            }}
-            className="btn btn-secondary btn-sm"
-            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-            title="Preview & Print Prescription (RX)"
+            onClick={() => handleOpenRX(row)}
+            className="btn btn-doctor btn-sm"
+            style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+            title="Preview & Print Prescription (RX) - transitions to In Consultation"
           >
-            <Printer size={13} /> Print RX
+            <Printer size={13} /> RX
           </button>
-          {row.status === 'Completed' ? (
-            <button
-              onClick={() => navigate(`/doctor/consultation/${row.appointmentId}`)}
-              className="btn btn-secondary btn-sm"
-              style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-              title="Review Completed Consultation Record"
-            >
-              <FileText size={13} /> View
-            </button>
-          ) : (
-            <button
-              onClick={() => handleStartConsultation(row)}
-              className="btn btn-doctor btn-sm"
-              style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-              title="Open clinical consultation workspace"
-            >
-              <PlayCircle size={13} />
-              <span>{row.status === 'In Consultation' ? 'Resume' : 'Start'}</span>
-            </button>
-          )}
+
+          {/* 2. Bill */}
+          <button
+            onClick={async () => {
+              if (row.bill) {
+                setSelectedBillForPrint(row.bill);
+                setBillModalOpen(true);
+              } else {
+                try {
+                  const billRes = await api.getBills({ patientId: row.patientId });
+                  if (billRes.success && billRes.data.length > 0) {
+                    setSelectedBillForPrint(billRes.data[0]);
+                    setBillModalOpen(true);
+                  } else {
+                    showToast('No generated bill found for this patient yet.', 'info');
+                  }
+                } catch {
+                  showToast('No generated bill found for this patient yet.', 'info');
+                }
+              }
+            }}
+            className="btn btn-staff btn-sm"
+            style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+            title="Preview & Print Patient Bill"
+          >
+            <FileText size={13} /> Bill
+          </button>
+
+          {/* 3. End */}
+          <button
+            onClick={() => handleEndAppointment(row)}
+            disabled={row.status === 'Completed' || row.status === 'Cancelled'}
+            className="btn btn-sm"
+            style={{
+              padding: '4px 8px',
+              fontSize: '0.75rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              backgroundColor: row.status === 'Completed' ? '#E2E8F0' : '#DCFCE7',
+              color: row.status === 'Completed' ? '#64748B' : '#166534',
+              border: `1px solid ${row.status === 'Completed' ? '#CBD5E1' : '#BBF7D0'}`,
+              fontWeight: 700,
+              cursor: row.status === 'Completed' ? 'default' : 'pointer'
+            }}
+            title={row.status === 'Completed' ? 'Consultation Completed' : 'End consultation and mark as Completed'}
+          >
+            <CheckCircle2 size={13} /> {row.status === 'Completed' ? 'Ended' : 'End'}
+          </button>
+
+          {/* 4. Cancel */}
+          <button
+            onClick={() => handleCancelAppointment(row)}
+            disabled={row.status === 'Completed' || row.status === 'Cancelled'}
+            className="btn btn-secondary btn-sm"
+            style={{
+              color: row.status === 'Cancelled' ? '#94A3B8' : 'var(--status-danger-text)',
+              padding: '4px 8px',
+              fontSize: '0.75rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              opacity: (row.status === 'Completed' || row.status === 'Cancelled') ? 0.6 : 1
+            }}
+            title="Cancel Appointment"
+          >
+            <XCircle size={13} /> Cancel
+          </button>
+
+          {/* Consult Workspace Link */}
+          <button
+            onClick={() => handleStartConsultation(row)}
+            className="btn btn-secondary btn-sm"
+            style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+            title="Open clinical workstation"
+          >
+            <PlayCircle size={13} /> {row.status === 'Completed' ? 'View' : 'Consult'}
+          </button>
         </div>
       )
     }
@@ -291,6 +449,7 @@ const DoctorAppointmentsPage = () => {
           <RXPreviewModal
             prescription={{
               prescriptionId: selectedAppointmentForRX.prescription?.prescriptionId || `RX-${selectedAppointmentForRX.patientId}`,
+              appointmentId: selectedAppointmentForRX.appointmentId,
               patientName: selectedAppointmentForRX.patientName,
               patientId: selectedAppointmentForRX.patientId,
               patientAge: selectedAppointmentForRX.patientAge,
@@ -312,6 +471,7 @@ const DoctorAppointmentsPage = () => {
               createdAt: selectedAppointmentForRX.createdAt
             }}
             consultation={selectedAppointmentForRX.consultation || {
+              appointmentId: selectedAppointmentForRX.appointmentId,
               patientName: selectedAppointmentForRX.patientName,
               patientId: selectedAppointmentForRX.patientId,
               patientAge: selectedAppointmentForRX.patientAge,
@@ -324,12 +484,36 @@ const DoctorAppointmentsPage = () => {
               procedureDetails: selectedAppointmentForRX.procedureName,
               chiefComplaint: selectedAppointmentForRX.procedureName ? `Procedure: ${selectedAppointmentForRX.procedureName}` : ''
             }}
+            onPrint={() => {
+              setAppointments(prev =>
+                prev.map(a => a.appointmentId === selectedAppointmentForRX.appointmentId ? { ...a, status: 'In Consultation' } : a)
+              );
+            }}
             onClose={() => {
               setRxModalOpen(false);
               setSelectedAppointmentForRX(null);
             }}
           />
         )}
+      </Modal>
+
+      {/* INVOICE PREVIEW MODAL */}
+      <Modal
+        isOpen={billModalOpen}
+        onClose={() => {
+          setBillModalOpen(false);
+          setSelectedBillForPrint(null);
+        }}
+        title="VIORA Tax Invoice"
+        size="xl"
+      >
+        <InvoicePreview
+          invoice={selectedBillForPrint}
+          onClose={() => {
+            setBillModalOpen(false);
+            setSelectedBillForPrint(null);
+          }}
+        />
       </Modal>
     </div>
   );

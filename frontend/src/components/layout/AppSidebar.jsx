@@ -33,6 +33,7 @@ const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
       return [
         { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { to: '/admin/doctors', label: 'Doctor Management', icon: Stethoscope },
+        { to: '/admin/billing', label: 'Billing Management', icon: CreditCard },
         { to: '/admin/list-management', label: 'List Management', icon: ListFilter },
         { to: '/admin/staff', label: 'Staff Management', icon: Users },
         { to: '/admin/analytics', label: 'Analytics', icon: BarChart3 },

@@ -32,6 +32,7 @@ const AdminLayout = () => {
     const path = location.pathname;
     if (path.includes('dashboard')) return 'Executive Dashboard';
     if (path.includes('doctors')) return 'Doctor Management';
+    if (path.includes('billing')) return 'Billing Management & Financial Audit';
     if (path.includes('list-management')) return 'List & Procedures Management';
     if (path.includes('staff')) return 'Staff Management';
     if (path.includes('analytics')) return 'Financial & Operational Analytics';
