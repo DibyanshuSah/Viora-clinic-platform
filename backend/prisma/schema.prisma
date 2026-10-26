@@ -42,6 +42,13 @@ model ClinicProfile {
   openingTime        String   @default("08:00 AM")
   closingTime        String   @default("08:00 PM")
   currency           String   @default("₹")
+  whatsappEnabled            Boolean  @default(false)
+  whatsappApiUrl             String   @default("https://graph.facebook.com/v20.0")
+  whatsappPhoneNumberId      String?
+  whatsappBusinessAccountId  String?
+  whatsappAccessToken        String?
+  whatsappDefaultExpiryDays  Int      @default(7)
+  whatsappAutoSendOnEnd      Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -125,6 +132,9 @@ model Patient {
   allergies        String   @default("None")
   medicalHistory   String   @default("None")
   emergencyContact String?
+  whatsappNumber   String?
+  whatsappConsent  Boolean  @default(true)
+  whatsappConsentDate DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -133,6 +143,8 @@ model Patient {
   consultations Consultation[]
   prescriptions Prescription[]
   bills         Bill[]
+  billAccessLinks  BillAccessLink[]
+  whatsappMessages WhatsAppMessage[]
 
   @@map("patients")
 }
@@ -239,6 +251,71 @@ model Bill {
   patient     Patient      @relation(fields: [patientId], references: [patientId], onDelete: Cascade)
   doctor      Doctor       @relation(fields: [doctorId], references: [doctorId], onDelete: Cascade)
   appointment Appointment? @relation(fields: [appointmentId], references: [appointmentId])
+  billAccessLinks  BillAccessLink[]
+  whatsappMessages WhatsAppMessage[]
 
   @@map("bills")
+}
+
+model BillAccessLink {
+  id             String    @id @default(uuid())
+  token          String    @unique // Cryptographically secure UUID
+  billId         String
+  patientId      String
+  status         String    @default("Active") // Active | Revoked | Expired
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  revokedBy      String?
+  accessCount    Int       @default(0)
+  lastAccessedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  bill           Bill      @relation(fields: [billId], references: [billId], onDelete: Cascade)
+  patient        Patient   @relation(fields: [patientId], references: [patientId], onDelete: Cascade)
+
+  @@map("bill_access_links")
+}
+
+model WhatsAppMessage {
+  id                 String    @id @default(uuid())
+  appointmentId      String?
+  billId             String?
+  patientId          String
+  recipientPhone     String
+  messageBody        String
+  secureLinkUrl      String?
+  billAccessLinkId   String?
+  status             String    @default("Pending") // Pending | Sent | Delivered | Failed
+  externalMessageId  String?
+  failureReason      String?
+  retryCount         Int       @default(0)
+  sentAt             DateTime?
+  deliveredAt        DateTime?
+  failedAt           DateTime?
+  lastRetriedAt      DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  bill               Bill?     @relation(fields: [billId], references: [billId])
+  patient            Patient   @relation(fields: [patientId], references: [patientId], onDelete: Cascade)
+
+  @@map("whatsapp_messages")
+}
+
+model SystemAuditLog {
+  id           String    @id @default(uuid())
+  action       String    // BILL_CREATED, LINK_GENERATED, LINK_ACCESSED, LINK_REVOKED, WHATSAPP_SENT, WHATSAPP_RETRIED, WHATSAPP_FAILED, PERMISSION_CHANGED, SETTINGS_UPDATED
+  resourceType String    // BILL, LINK, WHATSAPP, USER, SETTING
+  resourceId   String?
+  patientId    String?
+  userId       String?
+  userName     String?
+  userRole     String?
+  ipAddress    String?
+  status       String    @default("SUCCESS") // SUCCESS | FAILURE | REVOKED | EXPIRED
+  details      String?   // Sanitized non-sensitive metadata
+  createdAt    DateTime  @default(now())
+
+  @@map("system_audit_logs")
 }

@@ -15,7 +15,13 @@ import {
   IndianRupee,
   Search,
   ShieldAlert,
-  ArrowRight
+  ArrowRight,
+  Link,
+  ShieldCheck,
+  Copy,
+  ExternalLink,
+  Lock,
+  Plus
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -60,29 +66,123 @@ const AdminBillingManagementPage = () => {
   const [selectedPatientIdForDelete, setSelectedPatientIdForDelete] = useState('');
   const [deletingPatientBills, setDeletingPatientBills] = useState(false);
 
+  // Bill Link & WhatsApp Management Modal State
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [selectedBillForLinks, setSelectedBillForLinks] = useState(null);
+  const [billLinks, setBillLinks] = useState([]);
+  const [loadingLinks, setLoadingLinks] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [billsRes, logsRes, patientsRes] = await Promise.all([
+      const [billsRes, logsRes, patientsRes, auditRes] = await Promise.all([
         api.getBills(),
         api.getBillingLogs(),
-        api.getPatients()
+        api.getPatients(),
+        api.getAuditLogs().catch(() => ({ success: false, data: { logs: [] } }))
       ]);
 
       if (billsRes.success) setBills(billsRes.data);
-      if (logsRes.success) {
-        // Sort newest first
-        const sortedLogs = [...logsRes.data].sort(
-          (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-        );
-        setLogs(sortedLogs);
+      
+      const combinedLogs = [];
+      if (auditRes.success && auditRes.data?.logs?.length > 0) {
+        combinedLogs.push(...auditRes.data.logs.map(l => ({
+          logId: l.id,
+          action: l.action,
+          billId: l.resourceId,
+          invoiceNumber: l.resourceId,
+          patientId: l.patientId,
+          patientName: l.patientId ? (patientsRes.data?.find(p => p.patientId === l.patientId)?.name || 'Patient') : 'System',
+          total: null,
+          details: l.details,
+          performedBy: `${l.userName} (${l.userRole})`,
+          timestamp: l.createdAt
+        })));
+      } else if (logsRes.success) {
+        combinedLogs.push(...logsRes.data);
       }
+
+      combinedLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      setLogs(combinedLogs);
+
       if (patientsRes.success) setPatients(patientsRes.data);
     } catch (err) {
       showToast(err.message || 'Failed to load billing records and audit logs', 'error');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleOpenLinkModal = async (bill) => {
+    setSelectedBillForLinks(bill);
+    setLinkModalOpen(true);
+    try {
+      setLoadingLinks(true);
+      const res = await api.getBillLinks(bill.billId);
+      if (res.success) {
+        setBillLinks(res.data);
+      }
+    } catch (err) {
+      showToast(err.message || 'Could not load bill links', 'error');
+    } finally {
+      setLoadingLinks(false);
+    }
+  };
+
+  const handleGenerateNewLink = async (billId, expiryDays = 365) => {
+    try {
+      setActionLoading(true);
+      const res = await api.generateBillLink(billId, expiryDays);
+      if (res.success) {
+        showToast('Generated fresh secure UUID bill link!', 'success');
+        const linksRes = await api.getBillLinks(billId);
+        if (linksRes.success) setBillLinks(linksRes.data);
+        fetchData();
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to generate link', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRevokeLink = async (linkId, billId) => {
+    try {
+      setActionLoading(true);
+      const res = await api.revokeBillLink(linkId);
+      if (res.success) {
+        showToast('Bill link revoked successfully. Token is no longer accessible.', 'info');
+        const linksRes = await api.getBillLinks(billId);
+        if (linksRes.success) setBillLinks(linksRes.data);
+        fetchData();
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to revoke link', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRetryWhatsApp = async (messageId) => {
+    try {
+      setActionLoading(true);
+      const res = await api.retryWhatsAppMessage(messageId);
+      if (res.success) {
+        showToast('WhatsApp notification re-sent successfully!', 'success');
+        fetchData();
+      }
+    } catch (err) {
+      showToast(err.message || 'Retry failed', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCopyLink = (url) => {
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    showToast('Secure UUID Bill Link copied to clipboard!', 'success');
   };
 
   useEffect(() => {
@@ -140,11 +240,13 @@ const AdminBillingManagementPage = () => {
     e.preventDefault();
     if (!editingBill) return;
     try {
+      const discountNum = Number(editFormData.discount) || 0;
+      const isDiscountAdded = discountNum > 0;
       const res = await api.updateBill(editingBill.billId, {
-        paid: Number(editFormData.paid),
+        paid: isDiscountAdded ? Math.max(Number(editFormData.paid), Math.max(0, editingBill.total - discountNum)) : Number(editFormData.paid),
         paymentMethod: editFormData.paymentMethod,
-        paymentStatus: editFormData.paymentStatus,
-        discount: Number(editFormData.discount)
+        paymentStatus: isDiscountAdded ? 'Paid' : editFormData.paymentStatus,
+        discount: discountNum
       });
       if (res.success) {
         showToast(`Invoice ${editingBill.invoiceNumber} updated successfully`, 'success');
@@ -288,6 +390,60 @@ const AdminBillingManagementPage = () => {
             TOTAL BILL DELETED
           </span>
         );
+      case 'LINK_GENERATED':
+        return (
+          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#F3E8FF', color: '#7E22CE', border: '1px solid #E9D5FF', display: 'inline-block' }}>
+            LINK GENERATED
+          </span>
+        );
+      case 'LINK_ACCESSED':
+        return (
+          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#DCFCE7', color: '#15803D', border: '1px solid #BBF7D0', display: 'inline-block' }}>
+            LINK ACCESSED
+          </span>
+        );
+      case 'LINK_REVOKED':
+        return (
+          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#FEE2E2', color: '#B91C1C', border: '1px solid #FECACA', display: 'inline-block' }}>
+            LINK REVOKED
+          </span>
+        );
+      case 'WHATSAPP_SENT':
+        return (
+          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#CCFBF1', color: '#0F766E', border: '1px solid #99F6E4', display: 'inline-block' }}>
+            WHATSAPP SENT
+          </span>
+        );
+      case 'WHATSAPP_RETRIED':
+        return (
+          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#B45309', border: '1px solid #FDE68A', display: 'inline-block' }}>
+            WHATSAPP RETRIED
+          </span>
+        );
+      case 'WHATSAPP_FAILED':
+        return (
+          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#FEE2E2', color: '#991B1B', border: '1px solid #FECACA', display: 'inline-block' }}>
+            WHATSAPP FAILED
+          </span>
+        );
+      case 'VISIT_COMPLETED':
+        return (
+          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#EEF2FF', color: '#4338CA', border: '1px solid #C7D2FE', display: 'inline-block' }}>
+            VISIT COMPLETED
+          </span>
+        );
+      case 'PATIENT_REGISTERED':
+        return (
+          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#E0F2FE', color: '#0369A1', border: '1px solid #BAE6FD', display: 'inline-block' }}>
+            PATIENT REGISTERED
+          </span>
+        );
+      case 'SETTINGS_UPDATED':
+        return (
+          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#F1F5F9', color: '#334155', border: '1px solid #CBD5E1', display: 'inline-block' }}>
+            SETTINGS UPDATED
+          </span>
+        );
       default:
         return (
           <span
@@ -389,6 +545,77 @@ const AdminBillingManagementPage = () => {
     {
       header: 'Status',
       render: (row) => <StatusBadge status={row.paymentStatus} />
+    },
+    {
+      header: 'WhatsApp & Link Access',
+      render: (row) => {
+        const msg = row.whatsappMessage;
+        const link = row.activeLink;
+        const hasActiveLink = Boolean(link?.url);
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {msg ? (
+                <span
+                  style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    backgroundColor: msg.status === 'Sent' || msg.status === 'Delivered' ? '#DCFCE7' : (msg.status === 'Pending' ? '#FEF3C7' : '#FEE2E2'),
+                    color: msg.status === 'Sent' || msg.status === 'Delivered' ? '#166534' : (msg.status === 'Pending' ? '#92400E' : '#991B1B')
+                  }}
+                  title={msg.failureReason || `Sent to ${msg.recipientPhone}`}
+                >
+                  {msg.status}
+                </span>
+              ) : (
+                <span style={{ fontSize: '0.72rem', color: '#94A3B8' }}>
+                  {row.patientWhatsappConsent === false ? 'No Consent' : 'Not Sent'}
+                </span>
+              )}
+
+              {hasActiveLink && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyLink(link.url)}
+                  className="btn btn-secondary btn-sm"
+                  style={{ padding: '2px 5px', fontSize: '0.7rem' }}
+                  title="Copy Secure UUID Bill Link"
+                >
+                  <Copy size={11} />
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <button
+                type="button"
+                onClick={() => handleOpenLinkModal(row)}
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '2px 6px', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                title="Manage Bill Links & Revocation"
+              >
+                <Link size={10} /> {hasActiveLink ? 'Manage Link' : 'Create Link'}
+              </button>
+
+              {msg?.status === 'Failed' && (
+                <button
+                  type="button"
+                  onClick={() => handleRetryWhatsApp(msg.id)}
+                  disabled={actionLoading}
+                  className="btn btn-secondary btn-sm"
+                  style={{ padding: '2px 6px', fontSize: '0.7rem', color: '#DC2626', borderColor: '#FECACA' }}
+                  title="Retry Failed WhatsApp"
+                >
+                  <RefreshCw size={10} />
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      }
     },
     {
       header: 'Actions',
@@ -927,6 +1154,212 @@ const AdminBillingManagementPage = () => {
           invoice={selectedInvoice}
           onClose={() => setInvoiceModalOpen(false)}
         />
+      </Modal>
+
+      {/* SECURE UUID BILL LINK & WHATSAPP MODAL */}
+      <Modal
+        isOpen={linkModalOpen}
+        onClose={() => {
+          setLinkModalOpen(false);
+          setSelectedBillForLinks(null);
+        }}
+        title={`Secure UUID Bill Access • ${selectedBillForLinks?.invoiceNumber || 'Bill Link'}`}
+        size="lg"
+      >
+        {selectedBillForLinks && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 16px',
+                backgroundColor: 'var(--bg-app)',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-subtle)',
+                flexWrap: 'wrap',
+                gap: '10px'
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>{selectedBillForLinks.patientName}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  Invoice: {selectedBillForLinks.invoiceNumber} &bull; Total: ₹{selectedBillForLinks.total?.toLocaleString()} &bull; Phone: {selectedBillForLinks.patientPhone}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleGenerateNewLink(selectedBillForLinks.billId)}
+                disabled={actionLoading}
+                className="btn btn-admin btn-sm"
+              >
+                <Plus size={13} /> Generate New UUID Link
+              </button>
+            </div>
+
+            {/* WHATSAPP MESSAGE STATUS */}
+            {selectedBillForLinks.whatsappMessage && (
+              <div
+                style={{
+                  padding: '14px 16px',
+                  backgroundColor: selectedBillForLinks.whatsappMessage.status === 'Sent' || selectedBillForLinks.whatsappMessage.status === 'Delivered'
+                    ? '#F0FDF4'
+                    : (selectedBillForLinks.whatsappMessage.status === 'Pending' ? '#FEF3C7' : '#FEF2F2'),
+                  border: `1px solid ${
+                    selectedBillForLinks.whatsappMessage.status === 'Sent' || selectedBillForLinks.whatsappMessage.status === 'Delivered'
+                      ? '#BBF7D0'
+                      : (selectedBillForLinks.whatsappMessage.status === 'Pending' ? '#FDE68A' : '#FECACA')
+                  }`,
+                  borderRadius: 'var(--radius-sm)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>
+                      WhatsApp Status: <strong>{selectedBillForLinks.whatsappMessage.status}</strong>
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      to {selectedBillForLinks.whatsappMessage.recipientPhone}
+                    </span>
+                  </div>
+                  {selectedBillForLinks.whatsappMessage.status === 'Failed' && (
+                    <button
+                      type="button"
+                      onClick={() => handleRetryWhatsApp(selectedBillForLinks.whatsappMessage.id)}
+                      disabled={actionLoading}
+                      className="btn btn-secondary btn-sm"
+                      style={{ color: '#DC2626', borderColor: '#FECACA' }}
+                    >
+                      <RefreshCw size={13} /> Retry WhatsApp Dispatch
+                    </button>
+                  )}
+                </div>
+                {selectedBillForLinks.whatsappMessage.failureReason && (
+                  <div style={{ fontSize: '0.75rem', color: '#DC2626', marginTop: '6px' }}>
+                    Failure Reason: {selectedBillForLinks.whatsappMessage.failureReason}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* LINKS LIST */}
+            <div>
+              <h4 style={{ fontSize: '0.88rem', fontWeight: 700, margin: '0 0 10px 0' }}>
+                Cryptographically Secure Bill-Sharing Links
+              </h4>
+              {loadingLinks ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#64748B' }}>Loading link security data...</div>
+              ) : billLinks.length === 0 ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#64748B', backgroundColor: 'var(--bg-app)', borderRadius: '6px' }}>
+                  No bill sharing link generated yet. Click "Generate New UUID Link" above.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {billLinks.map((lnk) => {
+                    const isRevoked = lnk.status === 'Revoked';
+                    const isExpired = lnk.isExpired || lnk.status === 'Expired';
+                    const isActive = !isRevoked && !isExpired;
+                    return (
+                      <div
+                        key={lnk.id}
+                        style={{
+                          padding: '12px 14px',
+                          border: `1px solid ${isActive ? '#BBF7D0' : '#E2E8F0'}`,
+                          backgroundColor: isActive ? '#F0FDF4' : '#F8FAFC',
+                          borderRadius: '6px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span
+                              style={{
+                                fontSize: '0.7rem',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: '10px',
+                                backgroundColor: isActive ? '#DCFCE7' : (isRevoked ? '#FEE2E2' : '#F1F5F9'),
+                                color: isActive ? '#166534' : (isRevoked ? '#991B1B' : '#475569')
+                              }}
+                            >
+                              {isActive ? 'ACTIVE' : (isRevoked ? 'REVOKED' : 'EXPIRED')}
+                            </span>
+                            <span style={{ fontSize: '0.78rem', color: '#64748B' }}>
+                              Created: {new Date(lnk.createdAt).toLocaleDateString()} &bull; Expires: {new Date(lnk.expiresAt).toLocaleDateString()}
+                            </span>
+                            <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                              (Accessed: {lnk.accessCount || 0} times)
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            {isActive && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyLink(lnk.url)}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+                                  title="Copy secure link to clipboard"
+                                >
+                                  <Copy size={12} /> Copy URL
+                                </button>
+                                <a
+                                  href={lnk.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ padding: '3px 8px', fontSize: '0.72rem', textDecoration: 'none' }}
+                                  title="Open patient bill view in new tab"
+                                >
+                                  <ExternalLink size={12} /> Open View
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRevokeLink(lnk.id, selectedBillForLinks.billId)}
+                                  disabled={actionLoading}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ padding: '3px 8px', fontSize: '0.72rem', color: '#DC2626', borderColor: '#FECACA' }}
+                                  title="Revoke this link immediately"
+                                >
+                                  <Lock size={12} /> Revoke Link
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {isActive && (
+                          <div
+                            style={{
+                              backgroundColor: '#FFFFFF',
+                              padding: '6px 10px',
+                              borderRadius: '4px',
+                              border: '1px solid #E2E8F0',
+                              fontSize: '0.75rem',
+                              fontFamily: 'monospace',
+                              wordBreak: 'break-all',
+                              color: '#334155'
+                            }}
+                          >
+                            {lnk.url}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div style={{ fontSize: '0.75rem', color: '#64748B', lineHeight: 1.5 }}>
+              <ShieldCheck size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px', color: '#16A34A' }} />
+              UUID tokens are unguessable and 128-bit cryptographically secure. Revoked or expired links immediately block patient bill viewing.
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

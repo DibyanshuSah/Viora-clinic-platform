@@ -33,6 +33,9 @@ import StaffAppointmentsPage from '../pages/staff/StaffAppointmentsPage';
 import StaffDoctorSchedulePage from '../pages/staff/StaffDoctorSchedulePage';
 import StaffBillingPage from '../pages/staff/StaffBillingPage';
 
+// Patient Public Pages
+import PatientBillViewPage from '../pages/patient/PatientBillViewPage';
+
 const RootRedirect = () => {
   const { isAuthenticated, role, loading } = useAuth();
 
@@ -61,6 +64,10 @@ const AppRoutes = () => {
       {/* Root & Auth */}
       <Route path="/" element={<RootRedirect />} />
       <Route path="/login" element={<LoginPage />} />
+
+      {/* Public Secure Patient Bill View via Cryptographic UUID */}
+      <Route path="/view-bill/:token" element={<PatientBillViewPage />} />
+      <Route path="/bill/access/:token" element={<PatientBillViewPage />} />
 
       {/* Admin Workspace */}
       <Route path="/admin" element={<AdminLayout />}>

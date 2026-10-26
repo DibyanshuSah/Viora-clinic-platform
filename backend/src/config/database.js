@@ -31,23 +31,66 @@ class DatabaseStore {
     this.prescriptions = JSON.parse(JSON.stringify(prescriptionsSeed));
     this.bills = JSON.parse(JSON.stringify(billsSeed));
     this.billingLogs = [];
+    this.billAccessLinks = [];
+    this.whatsappMessages = [];
+    this.auditLogs = [];
 
     this.counters = {
-      patient: 1001,
-      doctor: 101,
+      patient: 1002,
+      doctor: 102,
       staff: 201,
-      appointment: 1,
+      appointment: 2,
       consultation: 1001,
       prescription: 1001,
       procedure: 8,
       bill: 1,
-      user: 2
+      user: 3,
+      link: 1,
+      whatsapp: 1
     };
   }
 
   // ID GENERATORS & PREVIEWS
   peekNextPatientId() {
     return `PAT-${this.counters.patient}`;
+  }
+
+  logAuditAction({
+    action, // BILL_CREATED, LINK_GENERATED, LINK_ACCESSED, LINK_REVOKED, WHATSAPP_SENT, WHATSAPP_RETRIED, WHATSAPP_FAILED, PERMISSION_CHANGED, SETTINGS_UPDATED
+    resourceType, // BILL, LINK, WHATSAPP, USER, SETTING, APPOINTMENT
+    resourceId = null,
+    patientId = null,
+    user = null,
+    ipAddress = '127.0.0.1',
+    status = 'SUCCESS', // SUCCESS | FAILURE | REVOKED | EXPIRED | PENDING
+    details = ''
+  }) {
+    // Redact raw token secrets, passwords, or full URLs containing UUID tokens from audit log details
+    let sanitizedDetails = String(details || '');
+    sanitizedDetails = sanitizedDetails
+      .replace(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi, (match) => `${match.substring(0, 8)}...[REDACTED_UUID]`)
+      .replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, 'Bearer [REDACTED_TOKEN]');
+
+    const auditEntry = {
+      id: `AUD-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      action,
+      resourceType,
+      resourceId: resourceId || null,
+      patientId: patientId || null,
+      userId: user?.id || null,
+      userName: user ? user.name : 'System',
+      userRole: user ? user.role : 'SYSTEM',
+      ipAddress: ipAddress || '127.0.0.1',
+      status,
+      details: sanitizedDetails,
+      createdAt: new Date().toISOString()
+    };
+
+    this.auditLogs.unshift(auditEntry);
+    if (this.auditLogs.length > 2000) {
+      this.auditLogs.pop();
+    }
+    return auditEntry;
   }
 
   logBillingAction({ action, billId, invoiceNumber, patientId, patientName, total, details, user }) {
@@ -64,6 +107,17 @@ class DatabaseStore {
       timestamp: new Date().toISOString()
     };
     this.billingLogs.unshift(log);
+
+    // Also mirror into auditLogs for compliance
+    this.logAuditAction({
+      action: action === 'GENERATED' ? 'BILL_CREATED' : 'BILL_EDITED',
+      resourceType: 'BILL',
+      resourceId: billId || invoiceNumber,
+      patientId,
+      user,
+      details: `Invoice ${invoiceNumber || billId} for patient ${patientName}: ${action}`
+    });
+
     return log;
   }
 
@@ -127,6 +181,18 @@ class DatabaseStore {
   nextUserId() {
     const id = `usr-${this.counters.user}`;
     this.counters.user += 1;
+    return id;
+  }
+
+  nextLinkId() {
+    const id = `LNK-${Date.now()}-${String(this.counters.link).padStart(3, '0')}`;
+    this.counters.link += 1;
+    return id;
+  }
+
+  nextWhatsAppMessageId() {
+    const id = `WAM-${Date.now()}-${String(this.counters.whatsapp).padStart(3, '0')}`;
+    this.counters.whatsapp += 1;
     return id;
   }
 }

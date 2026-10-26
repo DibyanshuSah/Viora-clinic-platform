@@ -125,11 +125,20 @@ class BillingService {
     const discountAmt = Number(discount) || 0;
     const taxAmt = Number(tax) || 0;
     const total = Math.max(0, subtotal - discountAmt + taxAmt);
-    const paidAmt = Number(paid) || 0;
+    let paidAmt = Number(paid) || 0;
+
+    // Once discount is added to the bill, it should not show Partially Paid; it should show Paid
+    // and paid amount covers the discounted grand total so balance is 0
+    if (discountAmt > 0) {
+      paidAmt = Math.max(paidAmt, total);
+    }
+
     const balance = Math.max(0, total - paidAmt);
 
     let calculatedStatus = paymentStatus;
-    if (!calculatedStatus) {
+    if (discountAmt > 0) {
+      calculatedStatus = 'Paid';
+    } else if (!calculatedStatus || calculatedStatus === 'Partially Paid') {
       if (paidAmt >= total && total > 0) {
         calculatedStatus = 'Paid';
       } else if (paidAmt > 0 && paidAmt < total) {
@@ -139,6 +148,8 @@ class BillingService {
       } else {
         calculatedStatus = 'Pending';
       }
+    } else if (paidAmt >= total) {
+      calculatedStatus = 'Paid';
     }
 
     return {
@@ -269,8 +280,11 @@ class BillingService {
     const newBalance = Math.max(0, current.total - newPaid);
     
     let status = current.paymentStatus;
-    if (newPaid >= current.total) {
+    if (Number(current.discount) > 0 || newPaid >= current.total) {
       status = 'Paid';
+      if (Number(current.discount) > 0) {
+        newPaid = Math.max(newPaid, current.total);
+      }
     } else if (newPaid > 0 && newPaid < current.total) {
       status = 'Partially Paid';
     } else {
@@ -320,15 +334,18 @@ class BillingService {
     const doctorId = updateData.doctorId || current.doctorId;
     const doctor = db.doctors.find(d => d.doctorId === doctorId);
 
+    const discountVal = updateData.discount !== undefined ? Number(updateData.discount) : (Number(current.discount) || 0);
+    const isDiscountAdded = discountVal > 0;
+
     const calculated = this.calculateBillAmounts({
       consultationType: updateData.consultationType !== undefined ? updateData.consultationType : current.consultationType,
       consultationFee: updateData.consultationFee !== undefined ? updateData.consultationFee : current.consultationFee,
       doctor,
       procedures: updateData.procedures !== undefined ? updateData.procedures : current.procedures,
-      discount: updateData.discount !== undefined ? updateData.discount : current.discount,
+      discount: discountVal,
       tax: updateData.tax !== undefined ? updateData.tax : current.tax,
       paid: updateData.paid !== undefined ? updateData.paid : current.paid,
-      paymentStatus: updateData.paymentStatus || current.paymentStatus
+      paymentStatus: isDiscountAdded ? 'Paid' : (updateData.paymentStatus || current.paymentStatus)
     });
 
     db.bills[index] = {
@@ -446,12 +463,23 @@ class BillingService {
     const consultation = db.consultations.find(c => c.appointmentId === bill.appointmentId || (c.patientId === bill.patientId && c.doctorId === bill.doctorId && c.createdAt?.startsWith(bill.createdAt?.split('T')[0])));
     const prescription = consultation?.prescriptionId ? db.prescriptions.find(pr => pr.prescriptionId === consultation.prescriptionId) : null;
 
+    // Resolve WhatsApp Message and Active Link
+    const linkService = require('./linkService');
+    const links = linkService.getLinksForBill(bill.billId);
+    const now = new Date();
+    const activeLink = links.find(l => l.status === 'Active' && new Date(l.expiresAt) > now) || null;
+
+    const whatsappMessages = db.whatsappMessages.filter(m => m.billId === bill.billId);
+    const latestWhatsApp = whatsappMessages.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
+
     return {
       ...bill,
       patientName: patient ? patient.name : 'Unknown Patient',
       patientAge: patient ? patient.age : null,
       patientGender: patient ? patient.gender : null,
       patientPhone: patient ? patient.phone : null,
+      patientWhatsappNumber: patient ? (patient.whatsappNumber || patient.phone) : null,
+      patientWhatsappConsent: patient ? Boolean(patient.whatsappConsent) : true,
       patientAddress: patient ? `${patient.address}, ${patient.city}` : '',
       patientDOB: patient ? patient.dateOfBirth : null,
       allergies: patient ? patient.allergies : 'None',
@@ -464,7 +492,10 @@ class BillingService {
       appointmentTime: appointment ? appointment.time : null,
       consultation: consultation || null,
       prescription: prescription || null,
-      clinic: db.clinicProfile
+      clinic: db.clinicProfile,
+      activeLink,
+      links,
+      whatsappMessage: latestWhatsApp
     };
   }
 

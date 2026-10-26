@@ -185,14 +185,17 @@ const DoctorConsultationPage = () => {
           const histRes = await api.getPatientHistory(patient.patientId);
           if (histRes.success) setPatientHistory(histRes.data);
         }
-        if (completeAndExit) {
-          if (appointment?.appointmentId) {
-            try {
-              await api.updateAppointmentStatus(appointment.appointmentId, 'Completed');
-            } catch (statusErr) {
-              console.warn('Appointment status update note:', statusErr);
-            }
+        // Ensure appointment status is explicitly "In Consultation" for the Staff portal
+        if (appointment?.appointmentId && appointment.status !== 'Completed') {
+          try {
+            await api.updateAppointmentStatus(appointment.appointmentId, 'In Consultation');
+            setAppointment((prev) => (prev ? { ...prev, status: 'In Consultation' } : prev));
+          } catch (statusErr) {
+            console.warn('Status update note:', statusErr);
           }
+        }
+        if (completeAndExit) {
+          showToast('Consultant records saved! Status is "In Consultation" on Staff portal.', 'success');
           navigate('/doctor/appointments');
         }
       }
@@ -293,8 +296,9 @@ const DoctorConsultationPage = () => {
             onClick={() => handleSave(true)}
             className="btn btn-doctor btn-sm"
             disabled={saving}
+            title="Save clinical records & prescription; shows In Consultation on Staff portal"
           >
-            <Save size={15} /> {saving ? 'Saving...' : 'Save & Complete'}
+            <Save size={15} /> {saving ? 'Saving...' : 'Save Consultant'}
           </button>
         </div>
       </div>

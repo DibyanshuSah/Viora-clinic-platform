@@ -32,6 +32,9 @@ const StaffRegistrationPage = () => {
   const [existingPatients, setExistingPatients] = useState([]);
   const [isExistingPatient, setIsExistingPatient] = useState(false);
   const [selectedExistingPatientId, setSelectedExistingPatientId] = useState('');
+  const [patientSearchQuery, setPatientSearchQuery] = useState('');
+  const [showPatientSearchResults, setShowPatientSearchResults] = useState(false);
+  const patientSearchContainerRef = useRef(null);
   const [nextPatientId, setNextPatientId] = useState('');
   const [draftInvoiceModalOpen, setDraftInvoiceModalOpen] = useState(false);
 
@@ -58,6 +61,9 @@ const StaffRegistrationPage = () => {
     age: '',
     gender: 'Female',
     phone: '',
+    whatsappNumber: '',
+    whatsappConsent: true,
+    sameAsPhone: true,
     email: '',
     address: '',
     city: 'Bengaluru',
@@ -339,6 +345,12 @@ const StaffRegistrationPage = () => {
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (
+        patientSearchContainerRef.current &&
+        !patientSearchContainerRef.current.contains(event.target)
+      ) {
+        setShowPatientSearchResults(false);
+      }
+      if (
         procedureSearchContainerRef.current &&
         !procedureSearchContainerRef.current.contains(event.target)
       ) {
@@ -357,6 +369,19 @@ const StaffRegistrationPage = () => {
     };
   }, []);
 
+  // Filter existing patients for Search Box
+  const filteredExistingPatients = existingPatients.filter((p) => {
+    if (!patientSearchQuery.trim()) return true;
+    const q = patientSearchQuery.toLowerCase().trim();
+    return (
+      (p.name && p.name.toLowerCase().includes(q)) ||
+      (p.patientId && p.patientId.toLowerCase().includes(q)) ||
+      (p.phone && p.phone.includes(q)) ||
+      (p.whatsappNumber && p.whatsappNumber.includes(q)) ||
+      (p.email && p.email.toLowerCase().includes(q))
+    );
+  });
+
   // Resolved Patient ID (Pre-allocated or Existing)
   const assignedPatientId = isExistingPatient
     ? (patientData.patientId || selectedExistingPatientId || 'PAT-EXISTING')
@@ -369,8 +394,10 @@ const StaffRegistrationPage = () => {
 
   const handleSelectExistingPatient = (patientId) => {
     setSelectedExistingPatientId(patientId);
+    setShowPatientSearchResults(false);
     if (!patientId) {
       setIsExistingPatient(false);
+      setPatientSearchQuery('');
       setPatientData({
         patientId: '',
         name: '',
@@ -378,6 +405,9 @@ const StaffRegistrationPage = () => {
         age: '',
         gender: 'Female',
         phone: '',
+        whatsappNumber: '',
+        whatsappConsent: true,
+        sameAsPhone: true,
         email: '',
         address: '',
         city: 'Bengaluru',
@@ -393,6 +423,8 @@ const StaffRegistrationPage = () => {
     const pat = existingPatients.find((p) => p.patientId === patientId);
     if (pat) {
       setIsExistingPatient(true);
+      setPatientSearchQuery(`${pat.name} (${pat.patientId})`);
+      const isSame = !pat.whatsappNumber || pat.whatsappNumber === pat.phone;
       setPatientData({
         patientId: pat.patientId,
         name: pat.name || '',
@@ -400,6 +432,9 @@ const StaffRegistrationPage = () => {
         age: pat.age || '',
         gender: pat.gender || 'Female',
         phone: pat.phone || '',
+        whatsappNumber: pat.whatsappNumber || pat.phone || '',
+        whatsappConsent: pat.whatsappConsent !== undefined ? pat.whatsappConsent : true,
+        sameAsPhone: isSame,
         email: pat.email || '',
         address: pat.address || '',
         city: pat.city || 'Bengaluru',
@@ -436,7 +471,7 @@ const StaffRegistrationPage = () => {
     paid: Number(paidAmount || grandTotal),
     balance: Math.max(0, grandTotal - Number(paidAmount || grandTotal)),
     paymentMethod,
-    paymentStatus: (Number(paidAmount) >= grandTotal || !paidAmount) ? 'Paid' : 'Partially Paid',
+    paymentStatus: (Number(discount) > 0 || Number(paidAmount) >= grandTotal || !paidAmount) ? 'Paid' : 'Partially Paid',
     createdAt: new Date().toISOString()
   };
 
@@ -451,9 +486,16 @@ const StaffRegistrationPage = () => {
     try {
       setSubmitting(true);
 
+      const targetWhatsApp = patientData.sameAsPhone
+        ? patientData.phone
+        : (patientData.whatsappNumber || patientData.phone);
+
       const payload = {
         patient: {
           ...patientData,
+          whatsappNumber: targetWhatsApp,
+          whatsappConsent: Boolean(patientData.whatsappConsent),
+          whatsappConsentDate: patientData.whatsappConsent ? new Date().toISOString() : null,
           patientId: isExistingPatient ? (patientData.patientId || selectedExistingPatientId) : undefined,
           age: Number(patientData.age) || 0
         },
@@ -475,7 +517,7 @@ const StaffRegistrationPage = () => {
           tax: Number(tax),
           paid: Number(paidAmount || grandTotal), // Default to paid if paidAmount set
           paymentMethod,
-          paymentStatus: (Number(paidAmount) >= grandTotal || !paidAmount) ? 'Paid' : 'Partially Paid'
+          paymentStatus: (Number(discount) > 0 || Number(paidAmount) >= grandTotal || !paidAmount) ? 'Paid' : 'Partially Paid'
         }
       };
 
@@ -738,6 +780,8 @@ const StaffRegistrationPage = () => {
                   onClick={() => {
                     setIsExistingPatient(false);
                     setSelectedExistingPatientId('');
+                    setPatientSearchQuery('');
+                    setShowPatientSearchResults(false);
                     setPatientData({
                       patientId: '',
                       name: '',
@@ -745,6 +789,9 @@ const StaffRegistrationPage = () => {
                       age: '',
                       gender: 'Female',
                       phone: '',
+                      whatsappNumber: '',
+                      whatsappConsent: true,
+                      sameAsPhone: true,
                       email: '',
                       address: '',
                       city: 'Bengaluru',
@@ -761,7 +808,10 @@ const StaffRegistrationPage = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsExistingPatient(true)}
+                  onClick={() => {
+                    setIsExistingPatient(true);
+                    setShowPatientSearchResults(true);
+                  }}
                   className={`btn btn-sm ${isExistingPatient ? 'btn-staff' : 'btn-secondary'}`}
                 >
                   <Users size={14} /> Existing Patient (Add Visit & Bill)
@@ -775,35 +825,258 @@ const StaffRegistrationPage = () => {
               )}
             </div>
 
-            {/* EXISTING PATIENT DROPDOWN */}
+            {/* SEARCH EXISTING PATIENT FEATURE */}
             {isExistingPatient && (
               <div
+                ref={patientSearchContainerRef}
                 style={{
                   backgroundColor: '#F0FDF4',
-                  padding: '14px 16px',
+                  padding: '16px',
                   borderRadius: 'var(--radius-sm)',
                   border: '1px solid #BBF7D0',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '8px'
+                  gap: '10px',
+                  position: 'relative'
                 }}
               >
-                <label className="form-label" style={{ fontWeight: 700, color: '#166534', margin: 0 }}>
-                  Select Existing Registered Patient *
-                </label>
-                <select
-                  className="form-select"
-                  value={selectedExistingPatientId}
-                  onChange={(e) => handleSelectExistingPatient(e.target.value)}
-                  style={{ borderColor: '#86EFAC' }}
-                >
-                  <option value="">-- Choose Registered Patient from Database --</option>
-                  {existingPatients.map((p) => (
-                    <option key={p.patientId} value={p.patientId}>
-                      {p.name} ({p.patientId}) - Phone: {p.phone}
-                    </option>
-                  ))}
-                </select>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label" style={{ fontWeight: 700, color: '#166534', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Search size={16} /> Search Existing Registered Patient *
+                  </label>
+                  {selectedExistingPatientId && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectExistingPatient('')}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '0.75rem', padding: '2px 8px', borderColor: '#86EFAC', color: '#166534' }}
+                    >
+                      Clear / Change Patient
+                    </button>
+                  )}
+                </div>
+
+                {/* SEARCH INPUT BAR */}
+                <div style={{ position: 'relative' }}>
+                  <Search
+                    size={16}
+                    color="#166534"
+                    style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
+                  />
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={patientSearchQuery}
+                    onChange={(e) => {
+                      setPatientSearchQuery(e.target.value);
+                      setShowPatientSearchResults(true);
+                    }}
+                    onFocus={() => setShowPatientSearchResults(true)}
+                    placeholder="Search by Patient Name, ID (e.g. PAT-1001), Mobile phone, or Email..."
+                    style={{
+                      paddingLeft: '38px',
+                      paddingRight: patientSearchQuery ? '36px' : '12px',
+                      borderColor: '#86EFAC',
+                      backgroundColor: '#FFFFFF',
+                      fontSize: '0.875rem'
+                    }}
+                  />
+                  {patientSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPatientSearchQuery('');
+                        setShowPatientSearchResults(true);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: '#64748B',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 0
+                      }}
+                      title="Clear search"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+
+                {/* SEARCH RESULTS DROPDOWN OVERLAY */}
+                {showPatientSearchResults && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 4px)',
+                      left: 0,
+                      right: 0,
+                      zIndex: 60,
+                      backgroundColor: '#FFFFFF',
+                      border: '1px solid #BBF7D0',
+                      borderRadius: 'var(--radius-sm)',
+                      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15)',
+                      maxHeight: '300px',
+                      overflowY: 'auto'
+                    }}
+                  >
+                    <div style={{ padding: '8px 12px', backgroundColor: '#F0FDF4', borderBottom: '1px solid #BBF7D0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {patientSearchQuery ? `Search Results (${filteredExistingPatients.length})` : `Registered Patients (${existingPatients.length})`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPatientSearchResults(false)}
+                        style={{ background: 'none', border: 'none', color: '#166534', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    {filteredExistingPatients.length > 0 ? (
+                      filteredExistingPatients.map((p) => {
+                        const isSelected = selectedExistingPatientId === p.patientId;
+                        return (
+                          <div
+                            key={p.patientId}
+                            onClick={() => handleSelectExistingPatient(p.patientId)}
+                            style={{
+                              padding: '10px 14px',
+                              borderBottom: '1px solid #F1F5F9',
+                              cursor: 'pointer',
+                              backgroundColor: isSelected ? '#DCFCE7' : '#FFFFFF',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              transition: 'background-color 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = '#F0FDF4';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = '#FFFFFF';
+                            }}
+                          >
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontWeight: 700, color: '#0F172A', fontSize: '0.875rem' }}>
+                                  {p.name}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '0.7rem',
+                                    fontWeight: 700,
+                                    backgroundColor: '#DCFCE7',
+                                    color: '#166534',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    border: '1px solid #BBF7D0'
+                                  }}
+                                >
+                                  {p.patientId}
+                                </span>
+                                {isSelected && (
+                                  <span style={{ fontSize: '0.7rem', color: '#16A34A', fontWeight: 600 }}>
+                                    ✓ Active
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748B', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                <span>📞 {p.phone || 'No phone'}</span>
+                                {p.gender && <span>• {p.gender}</span>}
+                                {p.age && <span>• {p.age} yrs</span>}
+                                {p.city && <span>• {p.city}</span>}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className={`btn btn-sm ${isSelected ? 'btn-staff' : 'btn-secondary'}`}
+                              style={{ fontSize: '0.75rem', padding: '4px 10px', pointerEvents: 'none' }}
+                            >
+                              {isSelected ? 'Loaded' : 'Select'}
+                            </button>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div style={{ padding: '20px 16px', textAlign: 'center' }}>
+                        <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#64748B' }}>
+                          No registered patient found matching <strong>"{patientSearchQuery}"</strong>
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ borderColor: '#86EFAC', color: '#166534' }}
+                          onClick={() => {
+                            setShowPatientSearchResults(false);
+                            setIsExistingPatient(false);
+                            setPatientData((prev) => ({
+                              ...prev,
+                              name: patientSearchQuery
+                            }));
+                            showToast(`Switched to Register New Patient for "${patientSearchQuery}"`, 'info');
+                          }}
+                        >
+                          + Register as New Patient Instead
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* SELECTED PATIENT SUMMARY BADGE / DETAILS */}
+                {selectedExistingPatientId && (
+                  <div
+                    style={{
+                      backgroundColor: '#FFFFFF',
+                      border: '1px solid #86EFAC',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '10px 12px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '8px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                          backgroundColor: '#DCFCE7',
+                          color: '#166534',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 700,
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        ✓
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#166534' }}>
+                          Active Record: {patientData.name} ({patientData.patientId})
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                          Phone: {patientData.phone} &bull; Gender: {patientData.gender} &bull; Age: {patientData.age || 'N/A'} yrs
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: '#16A34A', fontWeight: 600 }}>
+                      ℹ Details loaded below can be edited for this visit
+                    </span>
+                  </div>
+                )}
+
                 <span style={{ fontSize: '0.75rem', color: '#15803D' }}>
                   ℹ Loading an existing patient preserves their patient ID and history. You can edit any details below and they will update this single record.
                 </span>
@@ -864,10 +1137,107 @@ const StaffRegistrationPage = () => {
                   label="Phone Number"
                   name="phone"
                   value={patientData.phone}
-                  onChange={(e) => setPatientData({ ...patientData, phone: e.target.value })}
+                  onChange={(e) => {
+                    const newPhone = e.target.value;
+                    setPatientData(prev => ({
+                      ...prev,
+                      phone: newPhone,
+                      whatsappNumber: prev.sameAsPhone ? newPhone : prev.whatsappNumber
+                    }));
+                  }}
                   placeholder="e.g. +91 98450 12345"
                   required
                 />
+              </div>
+
+              {/* WHATSAPP INTEGRATION & CONSENT BOX */}
+              <div
+                style={{
+                  backgroundColor: '#F0FDF4',
+                  border: '1px solid #BBF7D0',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '14px 16px',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        backgroundColor: '#16A34A',
+                        color: '#FFFFFF',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 800,
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      W
+                    </div>
+                    <span style={{ fontWeight: 700, fontSize: '0.875rem', color: '#166534' }}>
+                      WhatsApp Digital Bill Delivery & Consent
+                    </span>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#15803D', cursor: 'pointer', fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={patientData.sameAsPhone}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setPatientData(prev => ({
+                          ...prev,
+                          sameAsPhone: checked,
+                          whatsappNumber: checked ? prev.phone : prev.whatsappNumber
+                        }));
+                      }}
+                      style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: '#16A34A' }}
+                    />
+                    Same as Mobile Phone
+                  </label>
+                </div>
+
+                <div className="form-grid-2" style={{ alignItems: 'center', gap: '12px' }}>
+                  <FormInput
+                    label="WhatsApp Mobile Number"
+                    name="whatsappNumber"
+                    value={patientData.sameAsPhone ? patientData.phone : (patientData.whatsappNumber || '')}
+                    onChange={(e) => setPatientData({ ...patientData, whatsappNumber: e.target.value, sameAsPhone: false })}
+                    placeholder="e.g. +91 98450 12345"
+                    disabled={patientData.sameAsPhone}
+                    required={patientData.whatsappConsent}
+                  />
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                      backgroundColor: '#FFFFFF',
+                      padding: '10px 14px',
+                      borderRadius: '6px',
+                      border: '1px solid #DCFCE7'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      id="whatsappConsentCheck"
+                      checked={patientData.whatsappConsent}
+                      onChange={(e) => setPatientData({ ...patientData, whatsappConsent: e.target.checked })}
+                      style={{ width: '18px', height: '18px', marginTop: '2px', cursor: 'pointer', accentColor: '#16A34A' }}
+                    />
+                    <label htmlFor="whatsappConsentCheck" style={{ fontSize: '0.78rem', color: '#166534', cursor: 'pointer', lineHeight: 1.4 }}>
+                      <strong>Patient Consent:</strong> Patient agrees to receive computerized bills, visit summaries & secure UUID access links via WhatsApp.
+                    </label>
+                  </div>
+                </div>
               </div>
 
               <div className="form-grid-3">
@@ -965,6 +1335,14 @@ const StaffRegistrationPage = () => {
                   if (!patientData.name || !patientData.phone) {
                     showToast('Patient Name and Phone are required', 'error');
                     return;
+                  }
+                  if (patientData.whatsappConsent) {
+                    const wa = (patientData.sameAsPhone ? patientData.phone : patientData.whatsappNumber) || '';
+                    const digits = wa.replace(/[^0-9]/g, '');
+                    if (digits.length < 10) {
+                      showToast('Please provide a valid 10-digit WhatsApp number or uncheck WhatsApp consent', 'error');
+                      return;
+                    }
                   }
                   setCurrentStep(2);
                 }}
@@ -1221,7 +1599,26 @@ const StaffRegistrationPage = () => {
                 <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-main)' }}>
                   {patientData.name} ({patientData.age} yrs, {patientData.gender})
                 </div>
-                <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>Ph: {patientData.phone}</div>
+                <div style={{ color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span>Ph: {patientData.phone}</span>
+                  {patientData.whatsappConsent && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        backgroundColor: '#DCFCE7',
+                        color: '#166534',
+                        fontSize: '0.72rem',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        fontWeight: 700
+                      }}
+                    >
+                      WA: {patientData.sameAsPhone ? patientData.phone : patientData.whatsappNumber}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div>

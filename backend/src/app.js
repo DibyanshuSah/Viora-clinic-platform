@@ -18,6 +18,8 @@ const billingRoutes = require('./routes/billingRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const clinicRoutes = require('./routes/clinicRoutes');
+const publicRoutes = require('./routes/publicRoutes');
+const whatsappRoutes = require('./routes/whatsappRoutes');
 
 const app = express();
 
@@ -52,6 +54,8 @@ app.use('/api/v1/billing', billingRoutes);
 app.use('/api/v1/invoices', invoiceRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/clinic', clinicRoutes);
+app.use('/api/v1/public', publicRoutes);
+app.use('/api/v1/whatsapp', whatsappRoutes);
 
 // 404 handler for unknown routes
 app.use((req, res, next) => {

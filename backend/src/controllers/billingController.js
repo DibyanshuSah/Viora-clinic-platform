@@ -82,6 +82,57 @@ class BillingController {
       next(err);
     }
   }
+
+  async generateBillLink(req, res, next) {
+    try {
+      const linkService = require('../services/linkService');
+      const { expiryDays } = req.body || {};
+      const link = linkService.generateBillAccessLink(req.params.billId, req.user, expiryDays);
+      return successResponse(res, 'Secure UUID bill link generated successfully', link);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  getBillLinks(req, res, next) {
+    try {
+      const linkService = require('../services/linkService');
+      const links = linkService.getLinksForBill(req.params.billId);
+      return successResponse(res, 'Bill links retrieved successfully', links);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  revokeBillLink(req, res, next) {
+    try {
+      const linkService = require('../services/linkService');
+      const link = linkService.revokeBillAccessLink(req.params.linkId, req.user);
+      return successResponse(res, 'Bill access link revoked successfully', link);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  getWhatsAppMessages(req, res, next) {
+    try {
+      const whatsappService = require('../services/whatsappService');
+      const messages = whatsappService.getMessages(req.query);
+      return successResponse(res, 'WhatsApp message records retrieved successfully', messages);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async retryWhatsAppMessage(req, res, next) {
+    try {
+      const whatsappService = require('../services/whatsappService');
+      const retried = await whatsappService.retryMessage(req.params.messageId, req.user);
+      return successResponse(res, 'WhatsApp message retried successfully', retried);
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new BillingController();

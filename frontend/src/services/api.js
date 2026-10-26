@@ -316,6 +316,57 @@ class ApiService {
   getAdminAnalytics(period = 'today', startDate = '', endDate = '') {
     return this.get('/analytics', { period, startDate, endDate });
   }
+
+  // Visit Completion & WhatsApp Integration
+  endVisit(appointmentId) {
+    return this.post(`/appointments/${appointmentId}/end-visit`);
+  }
+
+  retryAppointmentWhatsApp(appointmentId) {
+    return this.post(`/appointments/${appointmentId}/retry-whatsapp`);
+  }
+
+  retryWhatsAppMessage(messageId) {
+    return this.post(`/billing/whatsapp/${messageId}/retry`);
+  }
+
+  getWhatsAppMessages(filters = {}) {
+    return this.get('/billing/whatsapp-messages', filters);
+  }
+
+  getBillLinks(billId) {
+    return this.get(`/billing/links/${billId}`);
+  }
+
+  generateBillLink(billId, expiryDays = null) {
+    return this.post(`/billing/links/${billId}/generate`, { expiryDays });
+  }
+
+  revokeBillLink(linkId) {
+    return this.post(`/billing/links/${linkId}/revoke`);
+  }
+
+  // Public UUID-based Bill Access (Patient View)
+  getPublicBillByToken(token) {
+    return this.get(`/public/bills/${token}`);
+  }
+
+  // Admin WhatsApp & Security Configuration
+  getWhatsAppSettings() {
+    return this.get('/admin/whatsapp-settings');
+  }
+
+  updateWhatsAppSettings(data) {
+    return this.put('/admin/whatsapp-settings', data);
+  }
+
+  testWhatsAppConnection(phoneNumber) {
+    return this.post('/admin/whatsapp-test', { phoneNumber });
+  }
+
+  getAuditLogs(params = {}) {
+    return this.get('/admin/audit-logs', params);
+  }
 }
 
 export const api = new ApiService();

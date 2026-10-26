@@ -99,6 +99,29 @@ class PatientService {
     };
   }
 
+  formatPhoneNumber(phone) {
+    if (!phone) return '';
+    const trimmed = phone.trim();
+    // Remove non-numeric except leading +
+    const hasPlus = trimmed.startsWith('+');
+    const digitsOnly = trimmed.replace(/[^0-9]/g, '');
+    if (!digitsOnly) return trimmed;
+    if (hasPlus) {
+      return `+${digitsOnly}`;
+    }
+    // Default 10-digit Indian mobile number: prefix +91
+    if (digitsOnly.length === 10) {
+      return `+91${digitsOnly}`;
+    }
+    return `+${digitsOnly}`;
+  }
+
+  validatePhoneNumber(phone) {
+    if (!phone || typeof phone !== 'string') return false;
+    const digitsOnly = phone.replace(/[^0-9]/g, '');
+    return digitsOnly.length >= 10 && digitsOnly.length <= 15;
+  }
+
   createPatient(data) {
     const {
       name,
@@ -113,12 +136,27 @@ class PatientService {
       pinCode = '',
       allergies = 'None',
       medicalHistory = 'None',
-      emergencyContact = ''
+      emergencyContact = '',
+      whatsappNumber,
+      whatsappConsent = true,
+      whatsappConsentDate
     } = data;
 
     if (!name || !phone) {
       throw { statusCode: 400, message: 'Patient Name and Phone are required' };
     }
+
+    if (!this.validatePhoneNumber(phone)) {
+      throw { statusCode: 400, message: 'Invalid phone number. Must contain at least 10 valid digits.' };
+    }
+
+    const rawWhatsapp = whatsappNumber && whatsappNumber.trim() ? whatsappNumber.trim() : phone.trim();
+    if (!this.validatePhoneNumber(rawWhatsapp)) {
+      throw { statusCode: 400, message: 'Invalid WhatsApp number. Must contain at least 10 valid digits.' };
+    }
+
+    const formattedPhone = this.formatPhoneNumber(phone);
+    const formattedWhatsApp = this.formatPhoneNumber(rawWhatsapp);
 
     let calculatedAge = age;
     if (!calculatedAge && dateOfBirth) {
@@ -135,8 +173,11 @@ class PatientService {
       dateOfBirth: dateOfBirth || '',
       age: Number(calculatedAge) || 0,
       gender,
-      phone: phone.trim(),
+      phone: formattedPhone,
       email: email ? email.trim() : '',
+      whatsappNumber: formattedWhatsApp,
+      whatsappConsent: Boolean(whatsappConsent),
+      whatsappConsentDate: whatsappConsent ? (whatsappConsentDate || new Date().toISOString()) : null,
       address: address ? address.trim() : '',
       city: city.trim(),
       state: state.trim(),
@@ -148,6 +189,19 @@ class PatientService {
     };
 
     db.patients.push(newPatient);
+
+    db.logAuditAction({
+      action: 'PATIENT_REGISTERED',
+      resourceType: 'PATIENT',
+      resourceId: newPatient.patientId,
+      patientId: newPatient.patientId,
+      details: `Patient registered: ${newPatient.name} with WhatsApp consent: ${newPatient.whatsappConsent}`
+    });
+
+    // Schedule Patient Registration WhatsApp message to be sent after 60 seconds of registration
+    const whatsappService = require('./whatsappService');
+    whatsappService.scheduleRegistrationMessage(newPatient.patientId, 60000);
+
     return newPatient;
   }
 
@@ -157,10 +211,36 @@ class PatientService {
       throw { statusCode: 404, message: 'Patient not found' };
     }
 
+    const current = db.patients[index];
+    const updateData = { ...data };
+
+    if (updateData.phone) {
+      if (!this.validatePhoneNumber(updateData.phone)) {
+        throw { statusCode: 400, message: 'Invalid phone number format.' };
+      }
+      updateData.phone = this.formatPhoneNumber(updateData.phone);
+    }
+
+    if (updateData.whatsappNumber) {
+      if (!this.validatePhoneNumber(updateData.whatsappNumber)) {
+        throw { statusCode: 400, message: 'Invalid WhatsApp number format.' };
+      }
+      updateData.whatsappNumber = this.formatPhoneNumber(updateData.whatsappNumber);
+    } else if (updateData.phone && !current.whatsappNumber) {
+      updateData.whatsappNumber = updateData.phone;
+    }
+
+    if (updateData.whatsappConsent !== undefined) {
+      updateData.whatsappConsent = Boolean(updateData.whatsappConsent);
+      if (updateData.whatsappConsent && !current.whatsappConsentDate) {
+        updateData.whatsappConsentDate = new Date().toISOString();
+      }
+    }
+
     db.patients[index] = {
-      ...db.patients[index],
-      ...data,
-      patientId: db.patients[index].patientId,
+      ...current,
+      ...updateData,
+      patientId: current.patientId,
       updatedAt: new Date().toISOString()
     };
 

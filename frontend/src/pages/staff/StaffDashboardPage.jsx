@@ -16,6 +16,7 @@ import { api } from '../../services/api';
 import StatCard from '../../components/common/StatCard';
 import StatusBadge from '../../components/common/StatusBadge';
 import { LoadingState } from '../../components/common/LoadingState';
+import { useToast } from '../../context/ToastContext';
 
 const StaffDashboardPage = () => {
   const [appointments, setAppointments] = useState([]);
@@ -23,7 +24,9 @@ const StaffDashboardPage = () => {
   const [patients, setPatients] = useState([]);
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [endingAptId, setEndingAptId] = useState(null);
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -77,6 +80,28 @@ const StaffDashboardPage = () => {
   useEffect(() => {
     fetchDashboardData();
   }, []);
+
+  const handleEndAppointment = async (apt) => {
+    try {
+      setEndingAptId(apt.appointmentId);
+      const res = await api.endVisit(apt.appointmentId);
+      if (res.success) {
+        await fetchDashboardData();
+        const wa = res.data?.whatsappMessage;
+        if (wa?.status === 'Sent' || wa?.status === 'Delivered') {
+          showToast(`Visit ended. Bill ${res.data.bill?.invoiceNumber} finalized & WhatsApp link sent to ${apt.patientName}!`, 'success');
+        } else if (wa?.status === 'Failed') {
+          showToast(`Visit completed. WhatsApp dispatch failed (${wa?.failureReason || 'Error'}). Staff can retry in Appointments.`, 'warning');
+        } else {
+          showToast(`Visit ended and bill finalized for ${apt.patientName}`, 'success');
+        }
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to complete visit', 'error');
+    } finally {
+      setEndingAptId(null);
+    }
+  };
 
   if (loading) {
     return <LoadingState message="Loading Front Desk Command Centre..." />;
@@ -206,12 +231,13 @@ const StaffDashboardPage = () => {
                   <th>Time</th>
                   <th>Type</th>
                   <th>Status</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {appointments.length === 0 ? (
                   <tr>
-                    <td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                    <td colSpan="7" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
                       No patients currently in queue.
                     </td>
                   </tr>
@@ -242,6 +268,28 @@ const StaffDashboardPage = () => {
                       </td>
                       <td>
                         <StatusBadge status={apt.status} />
+                      </td>
+                      <td>
+                        <button
+                          onClick={() => handleEndAppointment(apt)}
+                          disabled={apt.status === 'Completed' || apt.status === 'Cancelled' || endingAptId === apt.appointmentId}
+                          className="btn btn-sm"
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: '0.75rem',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            backgroundColor: apt.status === 'Completed' ? '#E2E8F0' : '#DCFCE7',
+                            color: apt.status === 'Completed' ? '#64748B' : '#166534',
+                            border: `1px solid ${apt.status === 'Completed' ? '#CBD5E1' : '#BBF7D0'}`,
+                            fontWeight: 700,
+                            cursor: apt.status === 'Completed' ? 'default' : 'pointer'
+                          }}
+                          title={apt.status === 'Completed' ? 'Visit Completed' : 'End visit and finalize bill & send WhatsApp'}
+                        >
+                          <CheckCircle2 size={13} /> {endingAptId === apt.appointmentId ? 'Ending...' : (apt.status === 'Completed' ? 'Ended' : 'End')}
+                        </button>
                       </td>
                     </tr>
                   ))

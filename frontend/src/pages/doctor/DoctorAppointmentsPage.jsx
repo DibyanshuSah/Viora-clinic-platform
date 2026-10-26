@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, PlayCircle, Clock, CheckCircle2, User, FileText, Printer, XCircle, CreditCard } from 'lucide-react';
+import { Calendar, PlayCircle, Clock, User, FileText, Printer, XCircle, CreditCard, RefreshCw, Copy } from 'lucide-react';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -20,6 +20,7 @@ const DoctorAppointmentsPage = () => {
   const [selectedAppointmentForRX, setSelectedAppointmentForRX] = useState(null);
   const [billModalOpen, setBillModalOpen] = useState(false);
   const [selectedBillForPrint, setSelectedBillForPrint] = useState(null);
+  const [retryingAptId, setRetryingAptId] = useState(null);
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -62,18 +63,25 @@ const DoctorAppointmentsPage = () => {
     }
   };
 
-  const handleEndAppointment = async (appointment) => {
+  const handleRetryWhatsApp = async (appointment) => {
     try {
-      const res = await api.updateAppointmentStatus(appointment.appointmentId, 'Completed');
+      setRetryingAptId(appointment.appointmentId);
+      const res = await api.retryAppointmentWhatsApp(appointment.appointmentId);
       if (res.success) {
-        setAppointments((prev) =>
-          prev.map((a) => (a.appointmentId === appointment.appointmentId ? { ...a, status: 'Completed' } : a))
-        );
-        showToast(`Consultation ended and marked as Completed for ${appointment.patientName}`, 'success');
+        showToast(`WhatsApp bill notification re-sent for ${appointment.patientName}!`, 'success');
+        await fetchDoctorAppointments();
       }
     } catch (err) {
-      showToast(err.message || 'Failed to complete appointment', 'error');
+      showToast(err.message || 'Retry failed', 'error');
+    } finally {
+      setRetryingAptId(null);
     }
+  };
+
+  const handleCopyBillLink = (url) => {
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    showToast('Secure UUID Bill Link copied to clipboard!', 'success');
   };
 
   const handleOpenRX = async (appointment) => {
@@ -240,7 +248,90 @@ const DoctorAppointmentsPage = () => {
       )
     },
     {
-      header: 'Actions (RX • Bill • End • Cancel)',
+      header: 'WhatsApp Status',
+      render: (row) => {
+        const msg = row.whatsappMessage;
+        const link = row.activeLink;
+        if (!msg) {
+          if (row.status === 'Completed') {
+            return (
+              <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>
+                {row.patientWhatsappConsent === false ? 'No Consent' : 'Not Sent'}
+              </span>
+            );
+          }
+          return (
+            <span style={{ fontSize: '0.72rem', color: '#94A3B8' }}>
+              Auto-sends on End
+            </span>
+          );
+        }
+
+        const isFailed = msg.status === 'Failed';
+        const isSent = msg.status === 'Sent' || msg.status === 'Delivered';
+        const isPending = msg.status === 'Pending';
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span
+                style={{
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  backgroundColor: isSent ? '#DCFCE7' : (isPending ? '#FEF3C7' : '#FEE2E2'),
+                  color: isSent ? '#166534' : (isPending ? '#92400E' : '#991B1B')
+                }}
+                title={msg.failureReason || `Sent to ${msg.recipientPhone}`}
+              >
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: isSent ? '#16A34A' : (isPending ? '#D97706' : '#DC2626') }} />
+                {msg.status}
+              </span>
+
+              {link?.url && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyBillLink(link.url)}
+                  className="btn btn-secondary btn-sm"
+                  style={{ padding: '2px 5px', fontSize: '0.7rem' }}
+                  title="Copy Secure UUID Bill Link"
+                >
+                  <Copy size={11} />
+                </button>
+              )}
+            </div>
+
+            {isFailed && (
+              <button
+                type="button"
+                onClick={() => handleRetryWhatsApp(row)}
+                disabled={retryingAptId === row.appointmentId}
+                className="btn btn-secondary btn-sm"
+                style={{
+                  padding: '2px 6px',
+                  fontSize: '0.7rem',
+                  color: '#DC2626',
+                  borderColor: '#FECACA',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px'
+                }}
+                title={`Failure: ${msg.failureReason || 'Error'}. Click to Retry.`}
+              >
+                <RefreshCw size={10} className={retryingAptId === row.appointmentId ? 'spin' : ''} />
+                {retryingAptId === row.appointmentId ? 'Retrying...' : 'Retry'}
+              </button>
+            )}
+          </div>
+        );
+      }
+    },
+    {
+      header: 'Actions (RX • Bill • Cancel • Consult)',
       render: (row) => (
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           {/* 1. RX */}
@@ -280,29 +371,7 @@ const DoctorAppointmentsPage = () => {
             <FileText size={13} /> Bill
           </button>
 
-          {/* 3. End */}
-          <button
-            onClick={() => handleEndAppointment(row)}
-            disabled={row.status === 'Completed' || row.status === 'Cancelled'}
-            className="btn btn-sm"
-            style={{
-              padding: '4px 8px',
-              fontSize: '0.75rem',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              backgroundColor: row.status === 'Completed' ? '#E2E8F0' : '#DCFCE7',
-              color: row.status === 'Completed' ? '#64748B' : '#166534',
-              border: `1px solid ${row.status === 'Completed' ? '#CBD5E1' : '#BBF7D0'}`,
-              fontWeight: 700,
-              cursor: row.status === 'Completed' ? 'default' : 'pointer'
-            }}
-            title={row.status === 'Completed' ? 'Consultation Completed' : 'End consultation and mark as Completed'}
-          >
-            <CheckCircle2 size={13} /> {row.status === 'Completed' ? 'Ended' : 'End'}
-          </button>
-
-          {/* 4. Cancel */}
+          {/* 3. Cancel */}
           <button
             onClick={() => handleCancelAppointment(row)}
             disabled={row.status === 'Completed' || row.status === 'Cancelled'}

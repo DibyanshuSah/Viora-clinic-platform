@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Calendar, Clock, User, Stethoscope, CheckCircle2, XCircle, Printer, FileText } from 'lucide-react';
+import { Plus, Calendar, Clock, User, Stethoscope, CheckCircle2, XCircle, Printer, FileText, RefreshCw, Copy, ExternalLink, MessageCircle } from 'lucide-react';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import DataTable from '../../components/common/DataTable';
@@ -26,6 +26,10 @@ const StaffAppointmentsPage = () => {
   const [selectedAppointmentForRX, setSelectedAppointmentForRX] = useState(null);
   const [billModalOpen, setBillModalOpen] = useState(false);
   const [selectedBillForPrint, setSelectedBillForPrint] = useState(null);
+
+  // WhatsApp Action States
+  const [endingAptId, setEndingAptId] = useState(null);
+  const [retryingAptId, setRetryingAptId] = useState(null);
   
   const { showToast } = useToast();
 
@@ -210,16 +214,45 @@ const StaffAppointmentsPage = () => {
 
   const handleEndAppointment = async (appointment) => {
     try {
-      const res = await api.updateAppointmentStatus(appointment.appointmentId, 'Completed');
+      setEndingAptId(appointment.appointmentId);
+      const res = await api.endVisit(appointment.appointmentId);
       if (res.success) {
-        setAppointments((prev) =>
-          prev.map((a) => (a.appointmentId === appointment.appointmentId ? { ...a, status: 'Completed' } : a))
-        );
-        showToast(`Visit ended and marked as Completed for ${appointment.patientName}`, 'success');
+        await fetchData();
+        const wa = res.data?.whatsappMessage;
+        if (wa?.status === 'Sent' || wa?.status === 'Delivered') {
+          showToast(`Visit ended. Bill ${res.data.bill?.invoiceNumber} finalized & WhatsApp link sent to ${appointment.patientName}!`, 'success');
+        } else if (wa?.status === 'Failed') {
+          showToast(`Visit completed. WhatsApp dispatch failed (${wa?.failureReason || 'Error'}). Staff can retry.`, 'warning');
+        } else {
+          showToast(`Visit ended & bill finalized for ${appointment.patientName}`, 'success');
+        }
       }
     } catch (err) {
       showToast(err.message || 'Failed to complete appointment', 'error');
+    } finally {
+      setEndingAptId(null);
     }
+  };
+
+  const handleRetryWhatsApp = async (appointment) => {
+    try {
+      setRetryingAptId(appointment.appointmentId);
+      const res = await api.retryAppointmentWhatsApp(appointment.appointmentId);
+      if (res.success) {
+        showToast(`WhatsApp notification re-sent for ${appointment.patientName}!`, 'success');
+        await fetchData();
+      }
+    } catch (err) {
+      showToast(err.message || 'Retry failed', 'error');
+    } finally {
+      setRetryingAptId(null);
+    }
+  };
+
+  const handleCopyBillLink = (url) => {
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    showToast('Secure UUID Bill Link copied to clipboard!', 'success');
   };
 
   const handleOpenRX = async (appointment) => {
@@ -346,6 +379,89 @@ const StaffAppointmentsPage = () => {
       )
     },
     {
+      header: 'WhatsApp Status',
+      render: (row) => {
+        const msg = row.whatsappMessage;
+        const link = row.activeLink;
+        if (!msg) {
+          if (row.status === 'Completed') {
+            return (
+              <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>
+                {row.patientWhatsappConsent === false ? 'No Consent' : 'Not Sent'}
+              </span>
+            );
+          }
+          return (
+            <span style={{ fontSize: '0.72rem', color: '#94A3B8' }}>
+              Auto-sends on End
+            </span>
+          );
+        }
+
+        const isFailed = msg.status === 'Failed';
+        const isSent = msg.status === 'Sent' || msg.status === 'Delivered';
+        const isPending = msg.status === 'Pending';
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span
+                style={{
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  backgroundColor: isSent ? '#DCFCE7' : (isPending ? '#FEF3C7' : '#FEE2E2'),
+                  color: isSent ? '#166534' : (isPending ? '#92400E' : '#991B1B')
+                }}
+                title={msg.failureReason || `Sent to ${msg.recipientPhone}`}
+              >
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: isSent ? '#16A34A' : (isPending ? '#D97706' : '#DC2626') }} />
+                {msg.status}
+              </span>
+
+              {link?.url && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyBillLink(link.url)}
+                  className="btn btn-secondary btn-sm"
+                  style={{ padding: '2px 5px', fontSize: '0.7rem' }}
+                  title="Copy Secure UUID Bill Link"
+                >
+                  <Copy size={11} />
+                </button>
+              )}
+            </div>
+
+            {isFailed && (
+              <button
+                type="button"
+                onClick={() => handleRetryWhatsApp(row)}
+                disabled={retryingAptId === row.appointmentId}
+                className="btn btn-secondary btn-sm"
+                style={{
+                  padding: '2px 6px',
+                  fontSize: '0.7rem',
+                  color: '#DC2626',
+                  borderColor: '#FECACA',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px'
+                }}
+                title={`Failure: ${msg.failureReason || 'Error'}. Click to Retry.`}
+              >
+                <RefreshCw size={10} className={retryingAptId === row.appointmentId ? 'spin' : ''} />
+                {retryingAptId === row.appointmentId ? 'Retrying...' : 'Retry'}
+              </button>
+            )}
+          </div>
+        );
+      }
+    },
+    {
       header: 'Actions (RX • Bill • End • Cancel)',
       render: (row) => (
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -389,7 +505,7 @@ const StaffAppointmentsPage = () => {
           {/* 3. End */}
           <button
             onClick={() => handleEndAppointment(row)}
-            disabled={row.status === 'Completed' || row.status === 'Cancelled'}
+            disabled={row.status === 'Completed' || row.status === 'Cancelled' || endingAptId === row.appointmentId}
             className="btn btn-sm"
             style={{
               padding: '4px 8px',
@@ -403,9 +519,9 @@ const StaffAppointmentsPage = () => {
               fontWeight: 700,
               cursor: row.status === 'Completed' ? 'default' : 'pointer'
             }}
-            title={row.status === 'Completed' ? 'Visit Completed' : 'End visit and mark as Completed'}
+            title={row.status === 'Completed' ? 'Visit Completed' : 'End visit and finalize bill & send WhatsApp'}
           >
-            <CheckCircle2 size={13} /> {row.status === 'Completed' ? 'Ended' : 'End'}
+            <CheckCircle2 size={13} /> {endingAptId === row.appointmentId ? 'Ending...' : (row.status === 'Completed' ? 'Ended' : 'End')}
           </button>
 
           {/* 4. Cancel */}

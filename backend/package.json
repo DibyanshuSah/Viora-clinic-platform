@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "node src/seed/seedData.js"
+    "seed": "node src/seed/seedData.js",
+    "test": "node test_complete_system.js"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",

@@ -221,6 +221,24 @@ class AppointmentService {
     const bill = db.bills.find(b => b.appointmentId === apt.appointmentId || (b.patientId === apt.patientId && b.doctorId === apt.doctorId && b.createdAt?.startsWith(apt.date))) || null;
     const consultation = db.consultations.find(c => c.appointmentId === apt.appointmentId || (c.patientId === apt.patientId && c.doctorId === apt.doctorId && c.createdAt?.startsWith(apt.date))) || null;
     const prescription = consultation?.prescriptionId ? db.prescriptions.find(pr => pr.prescriptionId === consultation.prescriptionId) : null;
+
+    // Resolve WhatsApp message & active link
+    let activeLink = null;
+    let whatsappMessage = null;
+
+    if (bill) {
+      const linkService = require('./linkService');
+      const links = linkService.getLinksForBill(bill.billId);
+      const now = new Date();
+      activeLink = links.find(l => l.status === 'Active' && new Date(l.expiresAt) > now) || null;
+
+      const msgs = db.whatsappMessages.filter(m => m.billId === bill.billId || m.appointmentId === apt.appointmentId);
+      whatsappMessage = msgs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
+    } else {
+      const msgs = db.whatsappMessages.filter(m => m.appointmentId === apt.appointmentId);
+      whatsappMessage = msgs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
+    }
+
     return {
       ...apt,
       patientCreatedAt: patient.createdAt || null,
@@ -229,6 +247,8 @@ class AppointmentService {
       patientAge: patient.age || null,
       patientGender: patient.gender || null,
       patientPhone: patient.phone || null,
+      patientWhatsappNumber: patient.whatsappNumber || patient.phone || null,
+      patientWhatsappConsent: patient.whatsappConsent !== undefined ? Boolean(patient.whatsappConsent) : true,
       patientDOB: patient.dateOfBirth || null,
       patientAddress: patient.address || null,
       allergies: patient.allergies || 'None',
@@ -241,14 +261,125 @@ class AppointmentService {
       invoiceNumber: bill ? bill.invoiceNumber : null,
       bill: bill || null,
       consultation: consultation || null,
-      prescription: prescription || null
+      prescription: prescription || null,
+      activeLink,
+      whatsappMessage
     };
   }
 
-  updateAppointmentStatus(appointmentId, status) {
+  /**
+   * Complete visit workflow when staff/doctor clicks "End" button:
+   * 1. Finalize the bill and save it in CMS.
+   * 2. Generate unique cryptographically secure UUID for bill-sharing link.
+   * 3. Create secure, time-limited bill access link.
+   * 4. Send bill link to patient's registered WhatsApp number.
+   * 5. Send thank-you message after visit is completed.
+   * + Idempotency: Prevent duplicate bills and messages on multiple clicks.
+   */
+  async endVisit(appointmentId, currentUser = null) {
+    const index = db.appointments.findIndex(a => a.appointmentId === appointmentId);
+    if (index === -1) {
+      throw { statusCode: 404, message: 'Appointment not found' };
+    }
+
+    const apt = db.appointments[index];
+    const patient = db.patients.find(p => p.patientId === apt.patientId);
+    if (!patient) {
+      throw { statusCode: 404, message: 'Patient not found' };
+    }
+
+    const doctor = db.doctors.find(d => d.doctorId === apt.doctorId);
+    const billingService = require('./billingService');
+    const linkService = require('./linkService');
+    const whatsappService = require('./whatsappService');
+
+    // 1. Mark appointment Completed
+    apt.status = 'Completed';
+    apt.updatedAt = new Date().toISOString();
+
+    // 2. Finalize Bill (Check for existing bill or create one now)
+    let bill = db.bills.find(
+      b => b.appointmentId === apt.appointmentId ||
+           (b.patientId === apt.patientId && b.doctorId === apt.doctorId && b.createdAt?.startsWith(apt.date))
+    );
+
+    if (!bill) {
+      // Find consultation or procedure if any
+      const consultation = db.consultations.find(c => c.appointmentId === apt.appointmentId);
+      const consultationFee = apt.appointmentType === 'Follow-up Visit (Zero Bill)' ? 0 : (doctor?.consultationRates?.consultationFee || 800);
+
+      const billProcedures = [];
+      if (apt.procedureId && apt.procedureName) {
+        billProcedures.push({
+          procedureId: apt.procedureId,
+          name: apt.procedureName,
+          price: 500,
+          qty: 1
+        });
+      }
+
+      bill = billingService.createBill({
+        patientId: apt.patientId,
+        doctorId: apt.doctorId,
+        appointmentId: apt.appointmentId,
+        consultationType: apt.appointmentType,
+        consultationFee,
+        procedures: billProcedures,
+        paymentMethod: 'UPI',
+        paymentStatus: 'Paid',
+        paid: consultationFee + (billProcedures.reduce((acc, p) => acc + (p.price || 0), 0))
+      }, currentUser);
+    }
+
+    // 3. Generate or retrieve secure UUID bill link
+    const accessLink = linkService.generateBillAccessLink(bill.billId, currentUser);
+
+    // 4 & 5. Dispatch WhatsApp thank-you message with secure link
+    let whatsappMessage = null;
+    try {
+      const recipientPhone = patient.whatsappNumber || patient.phone;
+      whatsappMessage = await whatsappService.sendBillMessage({
+        appointmentId: apt.appointmentId,
+        billId: bill.billId,
+        patientId: patient.patientId,
+        phone: recipientPhone,
+        secureLinkUrl: accessLink.url,
+        currentUser
+      });
+    } catch (waErr) {
+      console.error('[endVisit WhatsApp Dispatch Error]', waErr);
+    }
+
+    // Audit log
+    db.logAuditAction({
+      action: 'VISIT_COMPLETED',
+      resourceType: 'APPOINTMENT',
+      resourceId: apt.appointmentId,
+      patientId: apt.patientId,
+      user: currentUser,
+      status: 'SUCCESS',
+      details: `Visit ended for ${patient.name} (${apt.queueNumber}). Finalized Invoice: ${bill.invoiceNumber}. WhatsApp Status: ${whatsappMessage?.status || 'N/A'}`
+    });
+
+    const populated = this.populateAppointment(apt);
+    return {
+      appointment: populated,
+      bill: billingService.populateBill(bill),
+      link: accessLink,
+      whatsappMessage
+    };
+  }
+
+  async updateAppointmentStatus(appointmentId, status, currentUser = null) {
     const validStatuses = ['Waiting', 'In Consultation', 'Completed', 'Cancelled'];
     if (!validStatuses.includes(status)) {
       throw { statusCode: 400, message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` };
+    }
+
+    // When status transitions to Completed, execute the automated visit end & billing workflow!
+    if (status === 'Completed') {
+      const result = await this.endVisit(appointmentId, currentUser);
+      return result.appointment;
     }
 
     const index = db.appointments.findIndex(a => a.appointmentId === appointmentId);
@@ -259,11 +390,20 @@ class AppointmentService {
     db.appointments[index].status = status;
     db.appointments[index].updatedAt = new Date().toISOString();
 
+    db.logAuditAction({
+      action: 'APPOINTMENT_STATUS_CHANGED',
+      resourceType: 'APPOINTMENT',
+      resourceId: appointmentId,
+      patientId: db.appointments[index].patientId,
+      user: currentUser,
+      details: `Appointment status updated to ${status}`
+    });
+
     return this.populateAppointment(db.appointments[index]);
   }
 
-  cancelAppointment(appointmentId) {
-    return this.updateAppointmentStatus(appointmentId, 'Cancelled');
+  async cancelAppointment(appointmentId, currentUser = null) {
+    return this.updateAppointmentStatus(appointmentId, 'Cancelled', currentUser);
   }
 }
 

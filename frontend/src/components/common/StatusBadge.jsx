@@ -14,7 +14,7 @@ const StatusBadge = ({ status }) => {
   } else if (['paused', 'waiting', 'partially paid'].includes(normalized)) {
     badgeClass = 'badge-paused';
     dotColor = 'var(--status-paused-text)';
-  } else if (['in consultation'].includes(normalized)) {
+  } else if (['in consultation', 'in consultant'].includes(normalized)) {
     badgeClass = 'badge-in-consultation';
     dotColor = 'var(--status-active-text)';
   } else if (['danger', 'cancelled', 'inactive', 'pending', 'absent'].includes(normalized)) {
