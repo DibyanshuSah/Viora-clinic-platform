@@ -349,7 +349,7 @@ const ClinicProfilePage = () => {
                 name="website"
                 value={formData.website}
                 onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                placeholder="https://vioraclinic.com"
+                placeholder="https://vioracare.in"
               />
             </div>
 

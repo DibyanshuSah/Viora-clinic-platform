@@ -76,7 +76,7 @@
        Thank you for visiting **VIORA Healthcare!** 💚
        We hope you had a comfortable experience with us. Your bill is now available.
        📅 Visit Date: {{date}}
-       🧾 View Your Bill: http://localhost:5173/view-bill/{uuid}
+       🧾 View Your Bill: https://vioracare.in/view-bill/{uuid}
        *Your Health, Our Priority.*"
             │
             ▼
@@ -131,7 +131,7 @@ WHATSAPP_ACCESS_TOKEN=EAABxxxxxxxxxxxxxxxxxxxxxxx
 WHATSAPP_BUSINESS_ACCOUNT_ID=200000000000000
 WHATSAPP_WEBHOOK_VERIFY_TOKEN=viora_webhook_secret_verify_token_2026
 BILL_LINK_EXPIRY_DAYS=7
-APP_BASE_URL=http://localhost:5173
+APP_BASE_URL=https://vioracare.in
 ```
 
 #### Option B: Via Admin Settings Workspace
@@ -144,7 +144,7 @@ APP_BASE_URL=http://localhost:5173
 
 ### 3. Webhook Delivery Receipt Setup
 1. In Meta Developer Console, go to **WhatsApp > Configuration > Webhooks**.
-2. Set Callback URL: `https://<your-clinic-domain>/api/v1/whatsapp/webhook`
+2. Set Callback URL: `https://vioracare.in/api/v1/whatsapp/webhook`
 3. Set Verify Token: Match `WHATSAPP_WEBHOOK_VERIFY_TOKEN` (default: `viora_webhook_secret_verify_token_2026`).
 4. Subscribe to the `messages` event.
 5. When patients receive or read messages, VIORA updates the status in real time to `Delivered` or `Read`.
@@ -205,9 +205,11 @@ From root directory:
 npm run dev
 ```
 
-* Backend API: `http://localhost:5000`
-* Frontend App: `http://localhost:5173`
-* Patient Bill Viewer: `http://localhost:5173/view-bill/:token`
+* Production Deployed App: `https://vioracare.in`
+* Patient Bill Viewer (Production): `https://vioracare.in/view-bill/:token`
+* Local Backend API: `http://localhost:5000`
+* Local Frontend App: `http://localhost:5173`
+* Local Patient Bill Viewer: `http://localhost:5173/view-bill/:token`
 
 *(You can also use the convenient **Demo Mode** buttons on the Login page or in the Sidebar to switch workspaces with one click).*
 

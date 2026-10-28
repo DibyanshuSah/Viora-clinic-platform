@@ -12,7 +12,7 @@ class ClinicProfile {
     pinCode = "560034",
     contactNumber = "+91 80 4920 8800",
     email = "contact@vioraclinic.com",
-    website = "https://vioraclinic.com",
+    website = "https://vioracare.in",
     registrationNumber = "KA-MED-2024-88421",
     gstNumber = "29AABCU9603R1ZM",
     openingTime = "08:00 AM",

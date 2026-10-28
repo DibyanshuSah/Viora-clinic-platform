@@ -36,7 +36,7 @@ model ClinicProfile {
   pinCode            String   @default("560034")
   contactNumber      String   @default("+91 80 4920 8800")
   email              String   @default("contact@vioraclinic.com")
-  website            String   @default("https://vioraclinic.com")
+  website            String   @default("https://vioracare.in")
   registrationNumber String   @default("KA-MED-2024-88421")
   gstNumber          String   @default("29AABCU9603R1ZM")
   openingTime        String   @default("08:00 AM")

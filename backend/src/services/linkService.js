@@ -79,7 +79,7 @@ class LinkService {
    * Build complete public URL with UUID token
    */
   buildPublicLinkUrl(token) {
-    const baseUrl = (env.appBaseUrl || 'http://localhost:5173').replace(/\/+$/, '');
+    const baseUrl = (env.appBaseUrl || 'https://vioracare.in').replace(/\/+$/, '');
     return `${baseUrl}/view-bill/${token}`;
   }
 
@@ -197,7 +197,7 @@ class LinkService {
         pinCode: db.clinicProfile?.pinCode || '',
         contactNumber: db.clinicProfile?.contactNumber || '+91 80 4920 8800',
         email: db.clinicProfile?.email || 'contact@vioraclinic.com',
-        website: db.clinicProfile?.website || 'https://vioraclinic.com',
+        website: db.clinicProfile?.website || 'https://vioracare.in',
         registrationNumber: db.clinicProfile?.registrationNumber || 'KA-MED-2024-88421',
         gstNumber: db.clinicProfile?.gstNumber || '29AABCU9603R1ZM',
         currency: db.clinicProfile?.currency || '₹'
