@@ -2,45 +2,45 @@ const staffService = require('../services/staffService');
 const { successResponse } = require('../utils/responseHandler');
 
 class StaffController {
-  getAllStaff(req, res, next) {
+  async getAllStaff(req, res, next) {
     try {
-      const staffList = staffService.getAllStaff();
+      const staffList = await staffService.getAllStaff();
       return successResponse(res, 'Staff members retrieved successfully', staffList);
     } catch (err) {
       next(err);
     }
   }
 
-  getStaffById(req, res, next) {
+  async getStaffById(req, res, next) {
     try {
-      const staff = staffService.getStaffById(req.params.id);
+      const staff = await staffService.getStaffById(req.params.id);
       return successResponse(res, 'Staff details retrieved successfully', staff);
     } catch (err) {
       next(err);
     }
   }
 
-  createStaff(req, res, next) {
+  async createStaff(req, res, next) {
     try {
-      const staff = staffService.createStaff(req.body);
+      const staff = await staffService.createStaff(req.body);
       return successResponse(res, 'Staff member created successfully', staff, 201);
     } catch (err) {
       next(err);
     }
   }
 
-  updateStaff(req, res, next) {
+  async updateStaff(req, res, next) {
     try {
-      const staff = staffService.updateStaff(req.params.id, req.body);
+      const staff = await staffService.updateStaff(req.params.id, req.body);
       return successResponse(res, 'Staff member updated successfully', staff);
     } catch (err) {
       next(err);
     }
   }
 
-  deleteStaff(req, res, next) {
+  async deleteStaff(req, res, next) {
     try {
-      const result = staffService.deleteStaff(req.params.id);
+      const result = await staffService.deleteStaff(req.params.id);
       return successResponse(res, 'Staff member deactivated successfully', result);
     } catch (err) {
       next(err);

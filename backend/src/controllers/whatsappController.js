@@ -24,9 +24,9 @@ class WhatsAppController {
   /**
    * Meta Webhook Event Handler (POST request from Meta with message delivery updates)
    */
-  handleWebhookEvents(req, res) {
+  async handleWebhookEvents(req, res) {
     try {
-      const result = whatsappService.handleWebhookStatusUpdate(req.body);
+      const result = await whatsappService.handleWebhookStatusUpdate(req.body);
       return res.status(200).json({ success: true, processed: result.processed });
     } catch (err) {
       console.error('[WhatsApp Webhook Error]', err);

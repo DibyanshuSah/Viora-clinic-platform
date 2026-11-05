@@ -1,7 +1,8 @@
-const db = require('../config/database');
+const prisma = require('../config/prisma');
+const { safeParse } = require('../utils/jsonUtils');
 
 class AnalyticsService {
-  getAdminAnalytics(period = 'today', startDate, endDate) {
+  async getAdminAnalytics(period = 'today', startDate, endDate) {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
@@ -14,8 +15,10 @@ class AnalyticsService {
       filterEnd = new Date(todayStr + 'T23:59:59.999Z');
     } else if (period === 'week') {
       const day = now.getDay() || 7; // get current day of week (1-7)
+      filterStart = new Date(now);
       filterStart.setHours(0, 0, 0, 0);
       filterStart.setDate(now.getDate() - day + 1); // Monday
+      filterEnd = new Date(filterStart);
       filterEnd.setHours(23, 59, 59, 999);
       filterEnd.setDate(filterStart.getDate() + 6);
     } else if (period === 'month') {
@@ -25,16 +28,25 @@ class AnalyticsService {
       filterStart = new Date(startDate + 'T00:00:00.000Z');
       filterEnd = new Date(endDate + 'T23:59:59.999Z');
     } else {
-      // Default to today
       filterStart = new Date(todayStr + 'T00:00:00.000Z');
       filterEnd = new Date(todayStr + 'T23:59:59.999Z');
     }
 
-    // Filter bills within selected period
-    const filteredBills = db.bills.filter(b => {
-      const bDate = new Date(b.createdAt);
-      return bDate >= filterStart && bDate <= filterEnd;
+    // Filter bills within selected period (excluding cancelled bills from revenue totals)
+    const filteredBillsRaw = await prisma.bill.findMany({
+      where: {
+        createdAt: {
+          gte: filterStart,
+          lte: filterEnd
+        },
+        paymentStatus: { not: 'Cancelled' }
+      }
     });
+
+    const filteredBills = filteredBillsRaw.map(b => ({
+      ...b,
+      procedures: typeof b.procedures === 'string' ? safeParse(b.procedures, []) : (b.procedures || [])
+    }));
 
     // High Level KPIs
     const totalRevenue = filteredBills.reduce((acc, b) => acc + (b.total || 0), 0);
@@ -43,18 +55,34 @@ class AnalyticsService {
     const totalPaidReceived = filteredBills.reduce((acc, b) => acc + (b.paid || 0), 0);
     const totalOutstanding = filteredBills.reduce((acc, b) => acc + (b.balance || 0), 0);
 
-    // Period comparisons
-    const todayBills = db.bills.filter(b => b.createdAt.startsWith(todayStr));
+    // Period comparisons - Today's bills
+    const todayStart = new Date(todayStr + 'T00:00:00.000Z');
+    const todayEnd = new Date(todayStr + 'T23:59:59.999Z');
+    const todayBills = await prisma.bill.findMany({
+      where: {
+        createdAt: { gte: todayStart, lte: todayEnd },
+        paymentStatus: { not: 'Cancelled' }
+      }
+    });
     const revenueToday = todayBills.reduce((acc, b) => acc + (b.total || 0), 0);
 
     // Patients registered
-    const totalPatients = db.patients.length;
-    const patientsToday = db.patients.filter(p => p.createdAt.startsWith(todayStr)).length;
+    const totalPatients = await prisma.patient.count();
+    const patientsToday = await prisma.patient.count({
+      where: {
+        createdAt: { gte: todayStart, lte: todayEnd }
+      }
+    });
 
     // Appointments summary
-    const todayAppointments = db.appointments.filter(a => a.date === todayStr);
+    const todayAppointments = await prisma.appointment.findMany({
+      where: { date: todayStr }
+    });
     const totalAppointmentsToday = todayAppointments.length;
-    const availableDoctorsCount = db.doctors.filter(d => d.status === 'Active').length;
+
+    // Available doctors
+    const doctors = await prisma.doctor.findMany();
+    const availableDoctorsCount = doctors.filter(d => d.status === 'Active').length;
 
     // Breakdown: Consultations vs Procedures
     let consultationRevenue = 0;
@@ -76,7 +104,7 @@ class AnalyticsService {
     });
 
     // Revenue and Payout per Doctor
-    const doctorPayouts = db.doctors.map(doc => {
+    const doctorPayouts = doctors.map(doc => {
       const docBills = filteredBills.filter(b => b.doctorId === doc.doctorId);
       const grossRevenue = docBills.reduce((acc, b) => acc + (b.total || 0), 0);
       const docCut = docBills.reduce((acc, b) => acc + (b.doctorCutTotal || 0), 0);
@@ -103,7 +131,8 @@ class AnalyticsService {
     });
 
     // Staff working hours & attendance
-    const staffHours = db.staff.map(st => ({
+    const staffMembers = await prisma.staff.findMany();
+    const staffHours = staffMembers.map(st => ({
       staffId: st.staffId,
       name: st.name,
       shift: st.shift,
@@ -115,17 +144,25 @@ class AnalyticsService {
 
     const totalStaffHours = staffHours.reduce((acc, s) => acc + s.workedHours, 0);
 
-    // Revenue Timeline for Charts (Last 7 days or points in period)
+    // Revenue Timeline for Charts (Last 7 days)
     const timeline = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dStr = d.toISOString().split('T')[0];
-      const dayBills = db.bills.filter(b => b.createdAt.startsWith(dStr));
+      const dStart = new Date(dStr + 'T00:00:00.000Z');
+      const dEnd = new Date(dStr + 'T23:59:59.999Z');
+
+      const dayBills = await prisma.bill.findMany({
+        where: {
+          createdAt: { gte: dStart, lte: dEnd },
+          paymentStatus: { not: 'Cancelled' }
+        }
+      });
       const dayRev = dayBills.reduce((acc, b) => acc + (b.total || 0), 0);
       const dayDocCut = dayBills.reduce((acc, b) => acc + (b.doctorCutTotal || 0), 0);
       const dayClinicShare = dayBills.reduce((acc, b) => acc + (b.clinicShareTotal || 0), 0);
-      const dayApts = db.appointments.filter(a => a.date === dStr).length;
+      const dayApts = await prisma.appointment.count({ where: { date: dStr } });
 
       const dayLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
       timeline.push({

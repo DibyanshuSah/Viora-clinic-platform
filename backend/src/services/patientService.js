@@ -1,60 +1,91 @@
+const prisma = require('../config/prisma');
 const db = require('../config/database');
+const idGenerator = require('../utils/idGenerator');
+const { safeParse } = require('../utils/jsonUtils');
 
 class PatientService {
-  getNextPatientId() {
-    return db.peekNextPatientId();
+  async getNextPatientId() {
+    return await idGenerator.peekNextPatientId();
   }
 
-  getAllPatients(query = '') {
-    let list = [...db.patients];
+  async getAllPatients(query = '') {
+    let patients = await prisma.patient.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
+
     if (query) {
       const q = query.toLowerCase().trim();
-      list = list.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        p.patientId.toLowerCase().includes(q) ||
-        p.phone.includes(q)
+      patients = patients.filter(p =>
+        (p.name && p.name.toLowerCase().includes(q)) ||
+        (p.patientId && p.patientId.toLowerCase().includes(q)) ||
+        (p.phone && p.phone.includes(q))
       );
     }
-    // Sort latest registered first
-    return list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return patients;
   }
 
-  getPatientById(patientId) {
-    const patient = db.patients.find(p => p.patientId === patientId);
+  async getPatientById(patientId) {
+    const patient = await prisma.patient.findUnique({
+      where: { patientId }
+    });
     if (!patient) {
       throw { statusCode: 404, message: 'Patient not found' };
     }
 
-    // Attach complete medical history
-    const appointments = db.appointments
-      .filter(a => a.patientId === patientId)
-      .map(a => {
-        const doc = db.doctors.find(d => d.doctorId === a.doctorId);
-        return {
-          ...a,
-          doctorName: doc ? doc.name : 'Unknown Doctor',
-          specialization: doc ? doc.specialization : ''
-        };
-      })
-      .sort((a, b) => new Date(b.date + 'T' + b.time) - new Date(a.date + 'T' + a.time));
+    // Attach complete medical history directly from SQLite relations
+    const [rawAppointments, rawConsultations, rawPrescriptions, rawBills, doctors] = await Promise.all([
+      prisma.appointment.findMany({
+        where: { patientId },
+        orderBy: [{ date: 'desc' }, { time: 'desc' }]
+      }),
+      prisma.consultation.findMany({
+        where: { patientId },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.prescription.findMany({
+        where: { patientId },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.bill.findMany({
+        where: { patientId },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.doctor.findMany()
+    ]);
 
-    const consultationsRaw = db.consultations
-      .filter(c => c.patientId === patientId)
-      .map(c => {
-        const doc = db.doctors.find(d => d.doctorId === c.doctorId);
-        const prescription = db.prescriptions.find(pr => pr.prescriptionId === c.prescriptionId);
-        return {
-          ...c,
-          doctorName: doc ? doc.name : 'Unknown Doctor',
-          specialization: doc ? doc.specialization : '',
-          prescription: prescription || null
-        };
-      })
-      .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+    const doctorMap = new Map(doctors.map(d => [d.doctorId, d]));
+    const prescriptionMap = new Map(rawPrescriptions.map(pr => [pr.prescriptionId, pr]));
 
+    const appointments = rawAppointments.map(a => {
+      const doc = doctorMap.get(a.doctorId);
+      return {
+        ...a,
+        doctorName: doc ? doc.name : 'Unknown Doctor',
+        specialization: doc ? doc.specialization : ''
+      };
+    });
+
+    const consultationsRaw = rawConsultations.map(c => {
+      const doc = doctorMap.get(c.doctorId);
+      const pr = prescriptionMap.get(c.prescriptionId);
+      return {
+        ...c,
+        vitals: safeParse(c.vitals, {}),
+        doctorName: doc ? doc.name : 'Unknown Doctor',
+        specialization: doc ? doc.specialization : '',
+        prescription: pr ? {
+          ...pr,
+          medicines: safeParse(pr.medicines, []),
+          procedures: safeParse(pr.procedures, [])
+        } : null
+      };
+    });
+
+    // Deduplicate same-day consultations
     const dayMap = new Map();
     for (const item of consultationsRaw) {
-      const dayKey = (item.createdAt || '').split('T')[0];
+      const dayKey = (item.createdAt ? new Date(item.createdAt).toISOString() : '').split('T')[0];
       if (!dayMap.has(dayKey)) {
         dayMap.set(dayKey, item);
       } else {
@@ -66,29 +97,28 @@ class PatientService {
         }
       }
     }
-    const consultations = Array.from(dayMap.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+    const consultations = Array.from(dayMap.values()).sort(
+      (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+    );
 
-    const prescriptions = db.prescriptions
-      .filter(pr => pr.patientId === patientId)
-      .map(pr => {
-        const doc = db.doctors.find(d => d.doctorId === pr.doctorId);
-        return {
-          ...pr,
-          doctorName: doc ? doc.name : 'Unknown Doctor'
-        };
-      })
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const prescriptions = rawPrescriptions.map(pr => {
+      const doc = doctorMap.get(pr.doctorId);
+      return {
+        ...pr,
+        medicines: safeParse(pr.medicines, []),
+        procedures: safeParse(pr.procedures, []),
+        doctorName: doc ? doc.name : 'Unknown Doctor'
+      };
+    });
 
-    const bills = db.bills
-      .filter(b => b.patientId === patientId)
-      .map(b => {
-        const doc = db.doctors.find(d => d.doctorId === b.doctorId);
-        return {
-          ...b,
-          doctorName: doc ? doc.name : 'Unknown Doctor'
-        };
-      })
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const bills = rawBills.map(b => {
+      const doc = doctorMap.get(b.doctorId);
+      return {
+        ...b,
+        procedures: safeParse(b.procedures, []),
+        doctorName: doc ? doc.name : 'Unknown Doctor'
+      };
+    });
 
     return {
       ...patient,
@@ -102,14 +132,12 @@ class PatientService {
   formatPhoneNumber(phone) {
     if (!phone) return '';
     const trimmed = phone.trim();
-    // Remove non-numeric except leading +
     const hasPlus = trimmed.startsWith('+');
     const digitsOnly = trimmed.replace(/[^0-9]/g, '');
     if (!digitsOnly) return trimmed;
     if (hasPlus) {
       return `+${digitsOnly}`;
     }
-    // Default 10-digit Indian mobile number: prefix +91
     if (digitsOnly.length === 10) {
       return `+91${digitsOnly}`;
     }
@@ -122,7 +150,7 @@ class PatientService {
     return digitsOnly.length >= 10 && digitsOnly.length <= 15;
   }
 
-  createPatient(data) {
+  async createPatient(data) {
     const {
       name,
       dateOfBirth,
@@ -166,31 +194,33 @@ class PatientService {
       calculatedAge = Math.abs(ageDate.getUTCFullYear() - 1970);
     }
 
-    const patientId = db.nextPatientId();
-    const newPatient = {
-      patientId,
-      name: name.trim(),
-      dateOfBirth: dateOfBirth || '',
-      age: Number(calculatedAge) || 0,
-      gender,
-      phone: formattedPhone,
-      email: email ? email.trim() : '',
-      whatsappNumber: formattedWhatsApp,
-      whatsappConsent: Boolean(whatsappConsent),
-      whatsappConsentDate: whatsappConsent ? (whatsappConsentDate || new Date().toISOString()) : null,
-      address: address ? address.trim() : '',
-      city: city.trim(),
-      state: state.trim(),
-      pinCode: pinCode.trim(),
-      allergies: allergies ? allergies.trim() : 'None',
-      medicalHistory: medicalHistory ? medicalHistory.trim() : 'None',
-      emergencyContact: emergencyContact ? emergencyContact.trim() : '',
-      createdAt: new Date().toISOString()
-    };
+    const patientId = await idGenerator.nextPatientId();
+    const consentDate = whatsappConsent ? (whatsappConsentDate ? new Date(whatsappConsentDate) : new Date()) : null;
 
-    db.patients.push(newPatient);
+    const newPatient = await prisma.patient.create({
+      data: {
+        patientId,
+        name: name.trim(),
+        dateOfBirth: dateOfBirth || '',
+        age: Number(calculatedAge) || 0,
+        gender,
+        phone: formattedPhone,
+        email: email ? email.trim() : '',
+        whatsappNumber: formattedWhatsApp,
+        whatsappConsent: Boolean(whatsappConsent),
+        whatsappConsentDate: consentDate,
+        address: address ? address.trim() : '',
+        city: (city || 'Bengaluru').trim(),
+        state: (state || 'Karnataka').trim(),
+        pinCode: pinCode ? pinCode.trim() : '',
+        allergies: allergies ? allergies.trim() : 'None',
+        medicalHistory: medicalHistory ? medicalHistory.trim() : 'None',
+        emergencyContact: emergencyContact ? emergencyContact.trim() : ''
+      }
+    });
 
-    db.logAuditAction({
+    // Audit log
+    await db.logAuditAction({
       action: 'PATIENT_REGISTERED',
       resourceType: 'PATIENT',
       resourceId: newPatient.patientId,
@@ -198,53 +228,44 @@ class PatientService {
       details: `Patient registered: ${newPatient.name} with WhatsApp consent: ${newPatient.whatsappConsent}`
     });
 
-    // Schedule Patient Registration WhatsApp message to be sent after 60 seconds of registration
-    const whatsappService = require('./whatsappService');
-    whatsappService.scheduleRegistrationMessage(newPatient.patientId, 60000);
+    // Schedule WhatsApp registration message
+    try {
+      const whatsappService = require('./whatsappService');
+      whatsappService.scheduleRegistrationMessage(newPatient.patientId, 60000);
+    } catch {}
 
     return newPatient;
   }
 
-  updatePatient(patientId, data) {
-    const index = db.patients.findIndex(p => p.patientId === patientId);
-    if (index === -1) {
+  async updatePatient(patientId, data) {
+    const existing = await prisma.patient.findUnique({
+      where: { patientId }
+    });
+    if (!existing) {
       throw { statusCode: 404, message: 'Patient not found' };
     }
 
-    const current = db.patients[index];
-    const updateData = { ...data };
+    const updatePayload = {};
+    if (data.name !== undefined) updatePayload.name = data.name.trim();
+    if (data.dateOfBirth !== undefined) updatePayload.dateOfBirth = data.dateOfBirth;
+    if (data.age !== undefined) updatePayload.age = Number(data.age);
+    if (data.gender !== undefined) updatePayload.gender = data.gender;
+    if (data.phone !== undefined) updatePayload.phone = this.formatPhoneNumber(data.phone);
+    if (data.email !== undefined) updatePayload.email = data.email ? data.email.trim() : '';
+    if (data.whatsappNumber !== undefined) updatePayload.whatsappNumber = this.formatPhoneNumber(data.whatsappNumber);
+    if (data.whatsappConsent !== undefined) updatePayload.whatsappConsent = Boolean(data.whatsappConsent);
+    if (data.address !== undefined) updatePayload.address = data.address ? data.address.trim() : '';
+    if (data.city !== undefined) updatePayload.city = data.city ? data.city.trim() : '';
+    if (data.state !== undefined) updatePayload.state = data.state ? data.state.trim() : '';
+    if (data.pinCode !== undefined) updatePayload.pinCode = data.pinCode ? data.pinCode.trim() : '';
+    if (data.allergies !== undefined) updatePayload.allergies = data.allergies ? data.allergies.trim() : 'None';
+    if (data.medicalHistory !== undefined) updatePayload.medicalHistory = data.medicalHistory ? data.medicalHistory.trim() : 'None';
+    if (data.emergencyContact !== undefined) updatePayload.emergencyContact = data.emergencyContact ? data.emergencyContact.trim() : '';
 
-    if (updateData.phone) {
-      if (!this.validatePhoneNumber(updateData.phone)) {
-        throw { statusCode: 400, message: 'Invalid phone number format.' };
-      }
-      updateData.phone = this.formatPhoneNumber(updateData.phone);
-    }
-
-    if (updateData.whatsappNumber) {
-      if (!this.validatePhoneNumber(updateData.whatsappNumber)) {
-        throw { statusCode: 400, message: 'Invalid WhatsApp number format.' };
-      }
-      updateData.whatsappNumber = this.formatPhoneNumber(updateData.whatsappNumber);
-    } else if (updateData.phone && !current.whatsappNumber) {
-      updateData.whatsappNumber = updateData.phone;
-    }
-
-    if (updateData.whatsappConsent !== undefined) {
-      updateData.whatsappConsent = Boolean(updateData.whatsappConsent);
-      if (updateData.whatsappConsent && !current.whatsappConsentDate) {
-        updateData.whatsappConsentDate = new Date().toISOString();
-      }
-    }
-
-    db.patients[index] = {
-      ...current,
-      ...updateData,
-      patientId: current.patientId,
-      updatedAt: new Date().toISOString()
-    };
-
-    return db.patients[index];
+    return await prisma.patient.update({
+      where: { patientId },
+      data: updatePayload
+    });
   }
 }
 

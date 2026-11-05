@@ -1,13 +1,17 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../config/database');
+const prisma = require('../config/prisma');
 const { jwtSecret, jwtExpiresIn } = require('../config/environment');
 
 class AuthService {
   async login(username, password) {
-    const user = db.users.find(
-      u => u.username.toLowerCase() === username.trim().toLowerCase() && u.status === 'Active'
-    );
+    const cleanUsername = (username || '').trim();
+    // Case-insensitive user lookup
+    const users = await prisma.user.findMany({
+      where: { status: 'Active' }
+    });
+
+    const user = users.find(u => u.username.toLowerCase() === cleanUsername.toLowerCase());
 
     if (!user) {
       throw { statusCode: 401, message: 'Invalid username or password' };
@@ -30,9 +34,13 @@ class AuthService {
 
     let profileDetails = null;
     if (user.role === 'DOCTOR' && user.referenceId) {
-      profileDetails = db.doctors.find(d => d.doctorId === user.referenceId);
+      profileDetails = await prisma.doctor.findUnique({
+        where: { doctorId: user.referenceId }
+      });
     } else if (user.role === 'STAFF' && user.referenceId) {
-      profileDetails = db.staff.find(s => s.staffId === user.referenceId);
+      profileDetails = await prisma.staff.findUnique({
+        where: { staffId: user.referenceId }
+      });
     }
 
     return {
@@ -51,20 +59,16 @@ class AuthService {
   }
 
   async switchDemoRole(targetRole) {
-    let user;
-    if (targetRole === 'ADMIN') {
-      user = db.users.find(u => u.role === 'ADMIN' && u.status === 'Active');
-    } else if (targetRole === 'DOCTOR') {
-      user = db.users.find(u => u.role === 'DOCTOR' && u.status === 'Active');
-    } else if (targetRole === 'STAFF') {
-      user = db.users.find(u => u.role === 'STAFF' && u.status === 'Active');
-    }
+    const roleNormalized = (targetRole || '').toUpperCase();
+    const user = await prisma.user.findFirst({
+      where: { role: roleNormalized, status: 'Active' }
+    });
 
     if (!user) {
-      if (targetRole === 'DOCTOR') {
+      if (roleNormalized === 'DOCTOR') {
         throw { statusCode: 404, message: 'No doctor accounts registered yet. Please add a doctor in Admin > Doctor Management first.' };
       }
-      if (targetRole === 'STAFF') {
+      if (roleNormalized === 'STAFF') {
         throw { statusCode: 404, message: 'No active staff accounts registered. Please add a staff member in Admin > Staff Management first.' };
       }
       throw { statusCode: 404, message: `No demo account found for role ${targetRole}` };
@@ -82,9 +86,13 @@ class AuthService {
 
     let profileDetails = null;
     if (user.role === 'DOCTOR' && user.referenceId) {
-      profileDetails = db.doctors.find(d => d.doctorId === user.referenceId);
+      profileDetails = await prisma.doctor.findUnique({
+        where: { doctorId: user.referenceId }
+      });
     } else if (user.role === 'STAFF' && user.referenceId) {
-      profileDetails = db.staff.find(s => s.staffId === user.referenceId);
+      profileDetails = await prisma.staff.findUnique({
+        where: { staffId: user.referenceId }
+      });
     }
 
     return {
@@ -103,16 +111,23 @@ class AuthService {
   }
 
   async getMe(userId) {
-    const user = db.users.find(u => u.id === userId && u.status === 'Active');
+    const user = await prisma.user.findFirst({
+      where: { id: userId, status: 'Active' }
+    });
+
     if (!user) {
       throw { statusCode: 404, message: 'User not found' };
     }
 
     let profileDetails = null;
     if (user.role === 'DOCTOR' && user.referenceId) {
-      profileDetails = db.doctors.find(d => d.doctorId === user.referenceId);
+      profileDetails = await prisma.doctor.findUnique({
+        where: { doctorId: user.referenceId }
+      });
     } else if (user.role === 'STAFF' && user.referenceId) {
-      profileDetails = db.staff.find(s => s.staffId === user.referenceId);
+      profileDetails = await prisma.staff.findUnique({
+        where: { staffId: user.referenceId }
+      });
     }
 
     return {

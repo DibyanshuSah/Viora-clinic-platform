@@ -73,6 +73,15 @@ backend/prisma/*.db-journal
 backend/prisma/*.db-shm
 backend/prisma/*.db-wal
 
+# Database Backups & Snapshots
+*.db.bak
+*.sqlite.bak
+*.sqlite3.bak
+*.db.backup
+backups/
+backend/prisma/backups/
+prisma/backups/
+
 
 # Logs & Diagnostic Reports
 

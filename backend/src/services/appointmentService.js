@@ -1,27 +1,143 @@
+const prisma = require('../config/prisma');
 const db = require('../config/database');
+const idGenerator = require('../utils/idGenerator');
+const { safeParse } = require('../utils/jsonUtils');
 
 class AppointmentService {
-  getAppointments(filters = {}, currentUser = null) {
+  async populateAppointment(apt, patient = null, doctor = null) {
+    if (!patient && apt.patientId) {
+      patient = await prisma.patient.findUnique({ where: { patientId: apt.patientId } });
+    }
+    if (!doctor && apt.doctorId) {
+      doctor = await prisma.doctor.findUnique({ where: { doctorId: apt.doctorId } });
+    }
+
+    const bill = await prisma.bill.findFirst({
+      where: {
+        OR: [
+          { appointmentId: apt.appointmentId },
+          {
+            patientId: apt.patientId,
+            doctorId: apt.doctorId,
+            createdAt: { gte: new Date(apt.date + 'T00:00:00.000Z') }
+          }
+        ]
+      }
+    });
+
+    const consultation = await prisma.consultation.findFirst({
+      where: {
+        OR: [
+          { appointmentId: apt.appointmentId },
+          {
+            patientId: apt.patientId,
+            doctorId: apt.doctorId,
+            createdAt: { gte: new Date(apt.date + 'T00:00:00.000Z') }
+          }
+        ]
+      }
+    });
+
+    let prescription = null;
+    if (consultation && consultation.prescriptionId) {
+      prescription = await prisma.prescription.findUnique({
+        where: { prescriptionId: consultation.prescriptionId }
+      });
+      if (prescription) {
+        prescription.medicines = safeParse(prescription.medicines, []);
+        prescription.procedures = safeParse(prescription.procedures, []);
+      }
+    }
+
+    let activeLink = null;
+    let whatsappMessage = null;
+
+    if (bill) {
+      const now = new Date();
+      activeLink = await prisma.billAccessLink.findFirst({
+        where: {
+          billId: bill.billId,
+          status: 'Active',
+          expiresAt: { gt: now }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      whatsappMessage = await prisma.whatsAppMessage.findFirst({
+        where: {
+          OR: [
+            { billId: bill.billId },
+            { appointmentId: apt.appointmentId }
+          ]
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+    } else {
+      whatsappMessage = await prisma.whatsAppMessage.findFirst({
+        where: { appointmentId: apt.appointmentId },
+        orderBy: { createdAt: 'desc' }
+      });
+    }
+
+    const docRates = doctor ? safeParse(doctor.consultationRates, {}) : {};
+
+    return {
+      ...apt,
+      patientCreatedAt: patient ? patient.createdAt : null,
+      patientRegisteredAt: patient ? patient.createdAt : null,
+      patientName: patient ? patient.name : 'Unknown Patient',
+      patientAge: patient ? patient.age : null,
+      patientGender: patient ? patient.gender : null,
+      patientPhone: patient ? patient.phone : null,
+      patientWhatsappNumber: patient ? (patient.whatsappNumber || patient.phone) : null,
+      patientAddress: patient ? patient.address : '',
+      allergies: patient ? patient.allergies : 'None',
+      medicalHistory: patient ? patient.medicalHistory : 'None',
+      doctorName: doctor ? doctor.name : 'Unknown Doctor',
+      doctorSpecialization: doctor ? doctor.specialization : '',
+      doctorGender: doctor ? doctor.gender : 'Other',
+      doctorFee: docRates?.consultationFee || 800,
+      hasBill: Boolean(bill),
+      billId: bill ? bill.billId : null,
+      invoiceNumber: bill ? bill.invoiceNumber : null,
+      billTotal: bill ? bill.total : null,
+      billPaid: bill ? bill.paid : null,
+      billBalance: bill ? bill.balance : null,
+      paymentStatus: bill ? bill.paymentStatus : 'Unbilled',
+      hasConsultation: Boolean(consultation),
+      consultationId: consultation ? consultation.consultationId : null,
+      hasPrescription: Boolean(prescription),
+      prescriptionId: prescription ? prescription.prescriptionId : null,
+      activeLinkToken: activeLink ? activeLink.token : null,
+      activeLinkUrl: activeLink ? `https://vioracare.in/view-bill/${activeLink.token}` : null,
+      whatsappStatus: whatsappMessage ? whatsappMessage.status : 'None',
+      whatsappMessageId: whatsappMessage ? whatsappMessage.id : null,
+      whatsappFailureReason: whatsappMessage ? whatsappMessage.failureReason : null
+    };
+  }
+
+  async getAppointments(filters = {}, currentUser = null) {
     const { date, doctorId, status, type, patientId, role, sortBy } = filters;
-    let list = [...db.appointments];
+    const where = {};
 
-    if (date) {
-      list = list.filter(a => a.date === date);
-    }
-    if (doctorId) {
-      list = list.filter(a => a.doctorId === doctorId);
-    }
-    if (patientId) {
-      list = list.filter(a => a.patientId === patientId);
-    }
-    if (status) {
-      list = list.filter(a => a.status.toLowerCase() === status.toLowerCase());
-    }
-    if (type) {
-      list = list.filter(a => a.appointmentType.toLowerCase() === type.toLowerCase());
-    }
+    if (date) where.date = date;
+    if (doctorId) where.doctorId = doctorId;
+    if (patientId) where.patientId = patientId;
+    if (status) where.status = status;
+    if (type) where.appointmentType = type;
 
-    const populated = list.map(apt => this.populateAppointment(apt));
+    const [appointments, patients, doctors] = await Promise.all([
+      prisma.appointment.findMany({ where, orderBy: { createdAt: 'desc' } }),
+      prisma.patient.findMany(),
+      prisma.doctor.findMany()
+    ]);
+
+    const patientMap = new Map(patients.map(p => [p.patientId, p]));
+    const doctorMap = new Map(doctors.map(d => [d.doctorId, d]));
+
+    const populated = await Promise.all(
+      appointments.map(apt => this.populateAppointment(apt, patientMap.get(apt.patientId), doctorMap.get(apt.doctorId)))
+    );
 
     const isStaffRole =
       (currentUser && currentUser.role && currentUser.role.toUpperCase() === 'STAFF') ||
@@ -33,7 +149,7 @@ class AppointmentService {
         const timeA = a.patientCreatedAt ? new Date(a.patientCreatedAt).getTime() : 0;
         const timeB = b.patientCreatedAt ? new Date(b.patientCreatedAt).getTime() : 0;
         if (timeA !== timeB && !isNaN(timeA) && !isNaN(timeB)) {
-          return timeB - timeA; // most recent registered patient first
+          return timeB - timeA;
         }
         const patientDiff = (b.patientId || '').localeCompare(a.patientId || '', undefined, { numeric: true });
         if (patientDiff !== 0) return patientDiff;
@@ -48,45 +164,57 @@ class AppointmentService {
     }
 
     return populated.sort((a, b) => {
-      // Sort by status priority (Waiting -> In Consultation -> Completed -> Cancelled) then time
       const statusOrder = { 'In Consultation': 1, 'Waiting': 2, 'Completed': 3, 'Cancelled': 4 };
       const diff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
       if (diff !== 0) return diff;
-      return a.time.localeCompare(b.time);
+      return (a.time || '').localeCompare(b.time || '');
     });
   }
 
-  getAppointmentById(appointmentId) {
-    const apt = db.appointments.find(a => a.appointmentId === appointmentId);
+  async getAppointmentById(appointmentId) {
+    const apt = await prisma.appointment.findUnique({
+      where: { appointmentId }
+    });
     if (!apt) {
       throw { statusCode: 404, message: 'Appointment not found' };
     }
-    return this.populateAppointment(apt);
+    return await this.populateAppointment(apt);
   }
 
-  getDoctorSchedules(dateStr) {
+  async getDoctorSchedules(dateStr) {
     const targetDate = dateStr || new Date().toISOString().split('T')[0];
     const dateObj = new Date(targetDate);
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const dayName = dayNames[dateObj.getDay()];
 
-    return db.doctors.filter(d => d.status === 'Active').map(doc => {
-      const isWorkingDay = doc.workingDays.includes(dayName);
-      const todayAppointments = db.appointments.filter(
-        a => a.doctorId === doc.doctorId && a.date === targetDate && a.status !== 'Cancelled'
-      );
+    const [activeDoctors, todayAppointments] = await Promise.all([
+      prisma.doctor.findMany({ where: { status: 'Active' } }),
+      prisma.appointment.findMany({
+        where: {
+          date: targetDate,
+          status: { not: 'Cancelled' }
+        }
+      })
+    ]);
 
-      const waitingCount = todayAppointments.filter(a => a.status === 'Waiting').length;
-      const inConsultationCount = todayAppointments.filter(a => a.status === 'In Consultation').length;
-      const completedCount = todayAppointments.filter(a => a.status === 'Completed').length;
+    return activeDoctors.map(doc => {
+      const workingDays = safeParse(doc.workingDays, ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
+      const workingHours = safeParse(doc.workingHours, { start: "09:00", end: "17:00" });
+      const breakTimes = safeParse(doc.breakTimes, { start: "13:00", end: "14:00" });
 
-      // Generate 20-min slots across doctor working hours
+      const isWorkingDay = Array.isArray(workingDays) && workingDays.includes(dayName);
+      const docApts = todayAppointments.filter(a => a.doctorId === doc.doctorId);
+
+      const waitingCount = docApts.filter(a => a.status === 'Waiting').length;
+      const inConsultationCount = docApts.filter(a => a.status === 'In Consultation').length;
+      const completedCount = docApts.filter(a => a.status === 'Completed').length;
+
       const slots = [];
-      if (isWorkingDay && doc.workingHours && doc.workingHours.start && doc.workingHours.end) {
-        const [startH, startM] = doc.workingHours.start.split(':').map(Number);
-        const [endH, endM] = doc.workingHours.end.split(':').map(Number);
-        const [breakStartH, breakStartM] = (doc.breakTimes?.start || '13:00').split(':').map(Number);
-        const [breakEndH, breakEndM] = (doc.breakTimes?.end || '14:00').split(':').map(Number);
+      if (isWorkingDay && workingHours && workingHours.start && workingHours.end) {
+        const [startH, startM] = workingHours.start.split(':').map(Number);
+        const [endH, endM] = workingHours.end.split(':').map(Number);
+        const [breakStartH, breakStartM] = (breakTimes?.start || '13:00').split(':').map(Number);
+        const [breakEndH, breakEndM] = (breakTimes?.end || '14:00').split(':').map(Number);
 
         let currentMin = startH * 60 + startM;
         const endMinTotal = endH * 60 + endM;
@@ -94,39 +222,32 @@ class AppointmentService {
         const breakEndMin = breakEndH * 60 + breakEndM;
 
         while (currentMin + 20 <= endMinTotal) {
-          // Check if slot falls in break time
           const isBreak = currentMin >= breakStartMin && currentMin < breakEndMin;
           const hh = String(Math.floor(currentMin / 60)).padStart(2, '0');
           const mm = String(currentMin % 60).padStart(2, '0');
           const timeSlot = `${hh}:${mm}`;
 
-          const isBooked = todayAppointments.some(a => a.time === timeSlot);
-
+          const isBooked = docApts.some(a => a.time === timeSlot);
           slots.push({
             time: timeSlot,
             available: !isBreak && !isBooked,
             isBreak,
             isBooked
           });
-
           currentMin += 20;
         }
       }
 
       return {
         doctorId: doc.doctorId,
-        name: doc.name,
+        doctorName: doc.name,
         specialization: doc.specialization,
-        qualification: doc.qualification || '',
-        registrationNumber: doc.registrationNumber || '',
-        workingDays: doc.workingDays,
-        workingHours: doc.workingHours,
-        breakTimes: doc.breakTimes,
-        isWorkingToday: isWorkingDay,
-        consultationFee: doc.consultationRates?.consultationFee ?? doc.consultationFee ?? 800,
-        doctorCut: doc.consultationRates?.doctorCut ?? doc.doctorCut ?? 500,
-        clinicShare: doc.consultationRates?.clinicShare ?? doc.clinicShare ?? 300,
-        totalBookedToday: todayAppointments.length,
+        date: targetDate,
+        dayName,
+        isWorkingDay,
+        workingHours,
+        breakTimes,
+        totalBookings: docApts.length,
         waitingCount,
         inConsultationCount,
         completedCount,
@@ -136,13 +257,13 @@ class AppointmentService {
     });
   }
 
-  createAppointment(data, currentUser) {
+  async createAppointment(data, currentUser = null) {
     const {
       patientId,
       doctorId,
       appointmentType = 'Consultation',
-      procedureId,
-      procedureName,
+      procedureId = null,
+      procedureName = null,
       date,
       time,
       status = 'Waiting'
@@ -156,51 +277,55 @@ class AppointmentService {
       throw { statusCode: 400, message: 'Appointment Type must be Consultation, Procedure, or Follow-up Visit (Zero Bill)' };
     }
 
-    const patient = db.patients.find(p => p.patientId === patientId);
+    const patient = await prisma.patient.findUnique({ where: { patientId } });
     if (!patient) {
       throw { statusCode: 404, message: 'Patient not found' };
     }
 
-    const doctor = db.doctors.find(d => d.doctorId === doctorId && d.status === 'Active');
+    const doctor = await prisma.doctor.findFirst({ where: { doctorId, status: 'Active' } });
     if (!doctor) {
       throw { statusCode: 404, message: 'Doctor not found or inactive' };
     }
 
-    // Validate Doctor Schedule
     const dateObj = new Date(date);
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const dayName = dayNames[dateObj.getDay()];
+    const workingDays = safeParse(doctor.workingDays, ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
 
-    if (!doctor.workingDays.includes(dayName)) {
+    if (Array.isArray(workingDays) && !workingDays.includes(dayName)) {
       throw { statusCode: 400, message: `${doctor.name} is not available on ${dayName}s.` };
     }
 
-    // Check existing appointments for queue number
-    const todayDoctorApts = db.appointments.filter(
-      a => a.doctorId === doctorId && a.date === date && a.status !== 'Cancelled'
-    );
+    const todayDoctorApts = await prisma.appointment.findMany({
+      where: {
+        doctorId,
+        date,
+        status: { not: 'Cancelled' }
+      }
+    });
 
     const queueNum = todayDoctorApts.length + 1;
     const queueNumber = `Q-${String(queueNum).padStart(2, '0')}`;
+    const appointmentId = await idGenerator.nextAppointmentId();
 
-    const appointmentId = db.nextAppointmentId();
-    const newAppointment = {
-      appointmentId,
-      patientId,
-      doctorId,
-      appointmentType,
-      procedureId: appointmentType === 'Procedure' ? procedureId : null,
-      procedureName: appointmentType === 'Procedure' ? procedureName : null,
-      date,
-      time,
-      status,
-      queueNumber,
-      waitingTimeMinutes: (queueNum - 1) * 15,
-      createdBy: currentUser ? `${currentUser.name} (${currentUser.role})` : 'Front Desk Staff',
-      createdAt: new Date().toISOString()
-    };
+    const createdBy = currentUser ? `${currentUser.name} (${currentUser.role})` : 'Front Desk Staff';
 
-    db.appointments.push(newAppointment);
+    const newAppointment = await prisma.appointment.create({
+      data: {
+        appointmentId,
+        patientId,
+        doctorId,
+        appointmentType,
+        procedureId: appointmentType === 'Procedure' ? procedureId : null,
+        procedureName: appointmentType === 'Procedure' ? procedureName : null,
+        date,
+        time,
+        status,
+        queueNumber,
+        waitingTimeMinutes: (queueNum - 1) * 15,
+        createdBy
+      }
+    });
 
     return {
       ...newAppointment,
@@ -208,105 +333,54 @@ class AppointmentService {
       patientAge: patient.age,
       patientGender: patient.gender,
       patientPhone: patient.phone,
-      patientCreatedAt: patient.createdAt || null,
-      patientRegisteredAt: patient.createdAt || null,
+      patientCreatedAt: patient.createdAt,
+      patientRegisteredAt: patient.createdAt,
       doctorName: doctor.name,
       doctorSpecialization: doctor.specialization
     };
   }
 
-  populateAppointment(apt) {
-    const patient = db.patients.find(p => p.patientId === apt.patientId) || {};
-    const doctor = db.doctors.find(d => d.doctorId === apt.doctorId) || {};
-    const bill = db.bills.find(b => b.appointmentId === apt.appointmentId || (b.patientId === apt.patientId && b.doctorId === apt.doctorId && b.createdAt?.startsWith(apt.date))) || null;
-    const consultation = db.consultations.find(c => c.appointmentId === apt.appointmentId || (c.patientId === apt.patientId && c.doctorId === apt.doctorId && c.createdAt?.startsWith(apt.date))) || null;
-    const prescription = consultation?.prescriptionId ? db.prescriptions.find(pr => pr.prescriptionId === consultation.prescriptionId) : null;
-
-    // Resolve WhatsApp message & active link
-    let activeLink = null;
-    let whatsappMessage = null;
-
-    if (bill) {
-      const linkService = require('./linkService');
-      const links = linkService.getLinksForBill(bill.billId);
-      const now = new Date();
-      activeLink = links.find(l => l.status === 'Active' && new Date(l.expiresAt) > now) || null;
-
-      const msgs = db.whatsappMessages.filter(m => m.billId === bill.billId || m.appointmentId === apt.appointmentId);
-      whatsappMessage = msgs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
-    } else {
-      const msgs = db.whatsappMessages.filter(m => m.appointmentId === apt.appointmentId);
-      whatsappMessage = msgs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
-    }
-
-    return {
-      ...apt,
-      patientCreatedAt: patient.createdAt || null,
-      patientRegisteredAt: patient.createdAt || null,
-      patientName: patient.name || 'Unknown Patient',
-      patientAge: patient.age || null,
-      patientGender: patient.gender || null,
-      patientPhone: patient.phone || null,
-      patientWhatsappNumber: patient.whatsappNumber || patient.phone || null,
-      patientWhatsappConsent: patient.whatsappConsent !== undefined ? Boolean(patient.whatsappConsent) : true,
-      patientDOB: patient.dateOfBirth || null,
-      patientAddress: patient.address || null,
-      allergies: patient.allergies || 'None',
-      medicalHistory: patient.medicalHistory || 'None',
-      doctorName: doctor.name || 'Unknown Doctor',
-      doctorSpecialization: doctor.specialization || '',
-      doctorQualification: doctor.qualification || '',
-      doctorRegNo: doctor.registrationNumber || '',
-      billId: bill ? bill.billId : null,
-      invoiceNumber: bill ? bill.invoiceNumber : null,
-      bill: bill || null,
-      consultation: consultation || null,
-      prescription: prescription || null,
-      activeLink,
-      whatsappMessage
-    };
-  }
-
-  /**
-   * Complete visit workflow when staff/doctor clicks "End" button:
-   * 1. Finalize the bill and save it in CMS.
-   * 2. Generate unique cryptographically secure UUID for bill-sharing link.
-   * 3. Create secure, time-limited bill access link.
-   * 4. Send bill link to patient's registered WhatsApp number.
-   * 5. Send thank-you message after visit is completed.
-   * + Idempotency: Prevent duplicate bills and messages on multiple clicks.
-   */
   async endVisit(appointmentId, currentUser = null) {
-    const index = db.appointments.findIndex(a => a.appointmentId === appointmentId);
-    if (index === -1) {
+    const apt = await prisma.appointment.findUnique({
+      where: { appointmentId }
+    });
+    if (!apt) {
       throw { statusCode: 404, message: 'Appointment not found' };
     }
 
-    const apt = db.appointments[index];
-    const patient = db.patients.find(p => p.patientId === apt.patientId);
+    const patient = await prisma.patient.findUnique({ where: { patientId: apt.patientId } });
     if (!patient) {
       throw { statusCode: 404, message: 'Patient not found' };
     }
 
-    const doctor = db.doctors.find(d => d.doctorId === apt.doctorId);
+    const doctor = await prisma.doctor.findUnique({ where: { doctorId: apt.doctorId } });
     const billingService = require('./billingService');
     const linkService = require('./linkService');
     const whatsappService = require('./whatsappService');
 
-    // 1. Mark appointment Completed
-    apt.status = 'Completed';
-    apt.updatedAt = new Date().toISOString();
+    // 1. Mark appointment Completed in SQLite
+    const updatedApt = await prisma.appointment.update({
+      where: { appointmentId },
+      data: { status: 'Completed' }
+    });
 
     // 2. Finalize Bill (Check for existing bill or create one now)
-    let bill = db.bills.find(
-      b => b.appointmentId === apt.appointmentId ||
-           (b.patientId === apt.patientId && b.doctorId === apt.doctorId && b.createdAt?.startsWith(apt.date))
-    );
+    let bill = await prisma.bill.findFirst({
+      where: {
+        OR: [
+          { appointmentId: apt.appointmentId },
+          {
+            patientId: apt.patientId,
+            doctorId: apt.doctorId,
+            createdAt: { gte: new Date(apt.date + 'T00:00:00.000Z') }
+          }
+        ]
+      }
+    });
 
     if (!bill) {
-      // Find consultation or procedure if any
-      const consultation = db.consultations.find(c => c.appointmentId === apt.appointmentId);
-      const consultationFee = apt.appointmentType === 'Follow-up Visit (Zero Bill)' ? 0 : (doctor?.consultationRates?.consultationFee || 800);
+      const docRates = doctor ? safeParse(doctor.consultationRates, {}) : {};
+      const consultationFee = apt.appointmentType === 'Follow-up Visit (Zero Bill)' ? 0 : (docRates.consultationFee || 800);
 
       const billProcedures = [];
       if (apt.procedureId && apt.procedureName) {
@@ -318,7 +392,7 @@ class AppointmentService {
         });
       }
 
-      bill = billingService.createBill({
+      bill = await billingService.createBill({
         patientId: apt.patientId,
         doctorId: apt.doctorId,
         appointmentId: apt.appointmentId,
@@ -332,9 +406,9 @@ class AppointmentService {
     }
 
     // 3. Generate or retrieve secure UUID bill link
-    const accessLink = linkService.generateBillAccessLink(bill.billId, currentUser);
+    const accessLink = await linkService.generateBillAccessLink(bill.billId, currentUser);
 
-    // 4 & 5. Dispatch WhatsApp thank-you message with secure link
+    // 4. Dispatch WhatsApp thank-you message with secure link
     let whatsappMessage = null;
     try {
       const recipientPhone = patient.whatsappNumber || patient.phone;
@@ -350,60 +424,59 @@ class AppointmentService {
       console.error('[endVisit WhatsApp Dispatch Error]', waErr);
     }
 
-    // Audit log
-    db.logAuditAction({
+    // 5. Audit log
+    await db.logAuditAction({
       action: 'VISIT_COMPLETED',
       resourceType: 'APPOINTMENT',
       resourceId: apt.appointmentId,
       patientId: apt.patientId,
       user: currentUser,
       status: 'SUCCESS',
-      details: `Visit ended for ${patient.name} (${apt.queueNumber}). Finalized Invoice: ${bill.invoiceNumber}. WhatsApp Status: ${whatsappMessage?.status || 'N/A'}`
+      details: `Visit ended for ${patient.name} (${patient.patientId}). Invoice ${bill.invoiceNumber} finalized. Secure bill link generated.`
     });
 
-    const populated = this.populateAppointment(apt);
+    const populatedAppointment = await this.populateAppointment(updatedApt, patient, doctor);
+
     return {
-      appointment: populated,
-      bill: billingService.populateBill(bill),
+      appointment: populatedAppointment,
+      bill,
       link: accessLink,
-      whatsappMessage
+      accessLink,
+      whatsappMessage,
+      message: `Visit for ${patient.name} completed successfully. Invoice ${bill.invoiceNumber} generated and WhatsApp notification processed.`
     };
   }
 
   async updateAppointmentStatus(appointmentId, status, currentUser = null) {
-    const validStatuses = ['Waiting', 'In Consultation', 'Completed', 'Cancelled'];
-    if (!validStatuses.includes(status)) {
-      throw { statusCode: 400, message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` };
-    }
-
-    // When status transitions to Completed, execute the automated visit end & billing workflow!
     if (status === 'Completed') {
       const result = await this.endVisit(appointmentId, currentUser);
       return result.appointment;
     }
 
-    const index = db.appointments.findIndex(a => a.appointmentId === appointmentId);
-    if (index === -1) {
+    const apt = await prisma.appointment.findUnique({ where: { appointmentId } });
+    if (!apt) {
       throw { statusCode: 404, message: 'Appointment not found' };
     }
 
-    db.appointments[index].status = status;
-    db.appointments[index].updatedAt = new Date().toISOString();
+    const updated = await prisma.appointment.update({
+      where: { appointmentId },
+      data: { status }
+    });
 
-    db.logAuditAction({
+    await db.logAuditAction({
       action: 'APPOINTMENT_STATUS_CHANGED',
       resourceType: 'APPOINTMENT',
       resourceId: appointmentId,
-      patientId: db.appointments[index].patientId,
+      patientId: apt.patientId,
       user: currentUser,
       details: `Appointment status updated to ${status}`
     });
 
-    return this.populateAppointment(db.appointments[index]);
+    return await this.populateAppointment(updated);
   }
 
   async cancelAppointment(appointmentId, currentUser = null) {
-    return this.updateAppointmentStatus(appointmentId, 'Cancelled', currentUser);
+    return await this.updateAppointmentStatus(appointmentId, 'Cancelled', currentUser);
   }
 }
 

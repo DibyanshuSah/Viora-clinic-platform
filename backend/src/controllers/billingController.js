@@ -2,81 +2,81 @@ const billingService = require('../services/billingService');
 const { successResponse } = require('../utils/responseHandler');
 
 class BillingController {
-  getAllBills(req, res, next) {
+  async getAllBills(req, res, next) {
     try {
-      const bills = billingService.getAllBills(req.query);
+      const bills = await billingService.getAllBills(req.query);
       return successResponse(res, 'Bills retrieved successfully', bills);
     } catch (err) {
       next(err);
     }
   }
 
-  getBillById(req, res, next) {
+  async getBillById(req, res, next) {
     try {
-      const bill = billingService.getBillById(req.params.id);
+      const bill = await billingService.getBillById(req.params.id);
       return successResponse(res, 'Bill details retrieved successfully', bill);
     } catch (err) {
       next(err);
     }
   }
 
-  createBill(req, res, next) {
+  async createBill(req, res, next) {
     try {
-      const bill = billingService.createBill(req.body, req.user);
+      const bill = await billingService.createBill(req.body, req.user);
       return successResponse(res, 'Bill and Invoice generated successfully', bill, 201);
     } catch (err) {
       next(err);
     }
   }
 
-  updatePayment(req, res, next) {
+  async updatePayment(req, res, next) {
     try {
-      const bill = billingService.updateBillPayment(req.params.id, req.body, req.user);
+      const bill = await billingService.updateBillPayment(req.params.id, req.body, req.user);
       return successResponse(res, 'Payment updated successfully', bill);
     } catch (err) {
       next(err);
     }
   }
 
-  updateBill(req, res, next) {
+  async updateBill(req, res, next) {
     try {
-      const updated = billingService.updateBill(req.params.id, req.body, req.user);
+      const updated = await billingService.updateBill(req.params.id, req.body, req.user);
       return successResponse(res, 'Bill updated successfully', updated);
     } catch (err) {
       next(err);
     }
   }
 
-  deleteBill(req, res, next) {
+  async deleteBill(req, res, next) {
     try {
-      const result = billingService.deleteBill(req.params.id, req.user);
+      const result = await billingService.deleteBill(req.params.id, req.user);
       return successResponse(res, result.message, result);
     } catch (err) {
       next(err);
     }
   }
 
-  deletePatientBills(req, res, next) {
+  async deletePatientBills(req, res, next) {
     try {
-      const result = billingService.deletePatientTotalBills(req.params.patientId, req.user);
+      const result = await billingService.deletePatientTotalBills(req.params.patientId, req.user);
       return successResponse(res, result.message, result);
     } catch (err) {
       next(err);
     }
   }
 
-  getBillingLogs(req, res, next) {
+  async getBillingLogs(req, res, next) {
     try {
-      const logs = billingService.getBillingLogs();
+      const logs = await billingService.getBillingLogs();
       return successResponse(res, 'Billing audit logs retrieved successfully', logs);
     } catch (err) {
       next(err);
     }
   }
 
-  connectedRegisterAndBill(req, res, next) {
+  async connectedRegisterAndBill(req, res, next) {
     try {
-      const result = billingService.registerAndBill(req.body, req.user);
+      const result = await billingService.registerAndBill(req.body, req.user);
       return successResponse(res, 'Patient registered, appointment booked, and bill generated successfully', result, 201);
     } catch (err) {
       next(err);
@@ -87,37 +87,37 @@ class BillingController {
     try {
       const linkService = require('../services/linkService');
       const { expiryDays } = req.body || {};
-      const link = linkService.generateBillAccessLink(req.params.billId, req.user, expiryDays);
+      const link = await linkService.generateBillAccessLink(req.params.billId, req.user, expiryDays);
       return successResponse(res, 'Secure UUID bill link generated successfully', link);
     } catch (err) {
       next(err);
     }
   }
 
-  getBillLinks(req, res, next) {
+  async getBillLinks(req, res, next) {
     try {
       const linkService = require('../services/linkService');
-      const links = linkService.getLinksForBill(req.params.billId);
+      const links = await linkService.getLinksForBill(req.params.billId);
       return successResponse(res, 'Bill links retrieved successfully', links);
     } catch (err) {
       next(err);
     }
   }
 
-  revokeBillLink(req, res, next) {
+  async revokeBillLink(req, res, next) {
     try {
       const linkService = require('../services/linkService');
-      const link = linkService.revokeBillAccessLink(req.params.linkId, req.user);
+      const link = await linkService.revokeBillAccessLink(req.params.linkId, req.user);
       return successResponse(res, 'Bill access link revoked successfully', link);
     } catch (err) {
       next(err);
     }
   }
 
-  getWhatsAppMessages(req, res, next) {
+  async getWhatsAppMessages(req, res, next) {
     try {
       const whatsappService = require('../services/whatsappService');
-      const messages = whatsappService.getMessages(req.query);
+      const messages = await whatsappService.getMessages(req.query);
       return successResponse(res, 'WhatsApp message records retrieved successfully', messages);
     } catch (err) {
       next(err);

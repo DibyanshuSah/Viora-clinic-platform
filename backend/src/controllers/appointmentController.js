@@ -2,37 +2,37 @@ const appointmentService = require('../services/appointmentService');
 const { successResponse } = require('../utils/responseHandler');
 
 class AppointmentController {
-  getAppointments(req, res, next) {
+  async getAppointments(req, res, next) {
     try {
-      const appointments = appointmentService.getAppointments(req.query, req.user);
+      const appointments = await appointmentService.getAppointments(req.query, req.user);
       return successResponse(res, 'Appointments retrieved successfully', appointments);
     } catch (err) {
       next(err);
     }
   }
 
-  getAppointmentById(req, res, next) {
+  async getAppointmentById(req, res, next) {
     try {
-      const appointment = appointmentService.getAppointmentById(req.params.id);
+      const appointment = await appointmentService.getAppointmentById(req.params.id);
       return successResponse(res, 'Appointment retrieved successfully', appointment);
     } catch (err) {
       next(err);
     }
   }
 
-  getDoctorSchedules(req, res, next) {
+  async getDoctorSchedules(req, res, next) {
     try {
       const { date } = req.query;
-      const schedules = appointmentService.getDoctorSchedules(date);
+      const schedules = await appointmentService.getDoctorSchedules(date);
       return successResponse(res, 'Doctor schedules retrieved successfully', schedules);
     } catch (err) {
       next(err);
     }
   }
 
-  createAppointment(req, res, next) {
+  async createAppointment(req, res, next) {
     try {
-      const appointment = appointmentService.createAppointment(req.body, req.user);
+      const appointment = await appointmentService.createAppointment(req.body, req.user);
       return successResponse(res, 'Appointment created successfully', appointment, 201);
     } catch (err) {
       next(err);
@@ -61,7 +61,7 @@ class AppointmentController {
   async retryWhatsApp(req, res, next) {
     try {
       const whatsappService = require('../services/whatsappService');
-      const messages = whatsappService.getMessages({ appointmentId: req.params.id });
+      const messages = await whatsappService.getMessages({ appointmentId: req.params.id });
       if (messages.length === 0) {
         throw { statusCode: 404, message: 'No WhatsApp message record found for this visit to retry' };
       }

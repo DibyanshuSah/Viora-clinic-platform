@@ -1,4 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs');
 const {
   clinicProfileSeed,
   usersSeed,
@@ -15,325 +16,302 @@ const {
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('--- Seeding VIORA Prisma Database ---');
+  console.log('--- Checking VIORA Prisma Database for Initial Baseline ---');
 
-  // 1. Seed Clinic Profile
-  await prisma.clinicProfile.upsert({
-    where: { id: 'viora-primary' },
-    update: clinicProfileSeed,
-    create: {
-      id: 'viora-primary',
-      ...clinicProfileSeed
-    }
-  });
-  console.log('✔ Clinic Profile seeded');
+  const isForce = process.argv.includes('--force');
+  const existingUserCount = await prisma.user.count();
+  const existingPatientCount = await prisma.patient.count();
 
-  // 2. Seed Users
+  if (existingUserCount > 0 && !isForce) {
+    console.log(`ℹ Found ${existingUserCount} existing user(s) and ${existingPatientCount} patient(s) in SQLite database.`);
+    console.log('ℹ Non-destructive mode: Preserving all existing user accounts, client records, and transactions.');
+  }
+
+  // 1. Ensure Clinic Profile exists (upsert without overwriting existing custom settings)
+  const existingProfile = await prisma.clinicProfile.findFirst();
+  if (!existingProfile) {
+    await prisma.clinicProfile.create({
+      data: {
+        id: 'viora-primary',
+        ...clinicProfileSeed
+      }
+    });
+    console.log('✔ Default Clinic Profile created');
+  } else {
+    console.log('✔ Clinic Profile already configured, preserving existing settings');
+  }
+
+  // 2. Ensure Default Users exist without resetting existing credentials
   for (const u of usersSeed) {
-    await prisma.user.upsert({
-      where: { username: u.username },
-      update: {
-        name: u.name,
-        email: u.email,
-        phone: u.phone,
-        role: u.role,
-        status: u.status,
-        referenceId: u.referenceId || null
-      },
-      create: {
-        id: u.id,
-        username: u.username,
-        password: u.password,
-        role: u.role,
-        name: u.name,
-        email: u.email,
-        phone: u.phone,
-        referenceId: u.referenceId || null,
-        status: u.status
+    const existing = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: u.id },
+          { username: u.username },
+          { email: u.email }
+        ]
       }
     });
+    if (!existing) {
+      await prisma.user.create({
+        data: {
+          id: u.id,
+          username: u.username,
+          password: u.password,
+          role: u.role,
+          name: u.name,
+          email: u.email,
+          phone: u.phone,
+          referenceId: u.referenceId || null,
+          status: u.status
+        }
+      });
+      console.log(`✔ User "${u.username}" (${u.role}) created`);
+    } else {
+      console.log(`✔ User matching "${u.username}", "${u.email}" or ID "${u.id}" exists (${existing.username}), preserving existing credentials`);
+    }
   }
-  console.log(`✔ ${usersSeed.length} Users seeded`);
 
-  // 3. Seed Doctors
-  for (const doc of doctorsSeed) {
-    await prisma.doctor.upsert({
-      where: { doctorId: doc.doctorId },
-      update: {
-        name: doc.name,
-        gender: doc.gender,
-        specialization: doc.specialization,
-        qualification: doc.qualification,
-        registrationNumber: doc.registrationNumber,
-        phone: doc.phone,
-        email: doc.email,
-        consultationRates: JSON.stringify(doc.consultationRates),
-        procedureRates: JSON.stringify(doc.procedureRates || {}),
-        workingDays: JSON.stringify(doc.workingDays),
-        workingHours: JSON.stringify(doc.workingHours),
-        breakTimes: JSON.stringify(doc.breakTimes),
-        status: doc.status
-      },
-      create: {
-        doctorId: doc.doctorId,
-        userId: doc.userId,
-        name: doc.name,
-        gender: doc.gender,
-        specialization: doc.specialization,
-        qualification: doc.qualification,
-        registrationNumber: doc.registrationNumber,
-        phone: doc.phone,
-        email: doc.email,
-        consultationRates: JSON.stringify(doc.consultationRates),
-        procedureRates: JSON.stringify(doc.procedureRates || {}),
-        workingDays: JSON.stringify(doc.workingDays),
-        workingHours: JSON.stringify(doc.workingHours),
-        breakTimes: JSON.stringify(doc.breakTimes),
-        status: doc.status
+  // 3. Ensure Procedures catalog has baseline items if catalog is empty
+  const procedureCount = await prisma.procedure.count();
+  if (procedureCount === 0 || isForce) {
+    for (const p of proceduresSeed) {
+      const existing = await prisma.procedure.findUnique({ where: { procedureId: p.procedureId } });
+      if (!existing) {
+        await prisma.procedure.create({
+          data: {
+            procedureId: p.procedureId,
+            name: p.name,
+            defaultPrice: p.defaultPrice,
+            defaultDoctorCut: p.defaultDoctorCut,
+            description: p.description,
+            status: p.status
+          }
+        });
       }
-    });
+    }
+    console.log(`✔ Baseline procedures catalog verified`);
+  } else {
+    console.log(`✔ Procedures catalog already populated (${procedureCount} procedures)`);
   }
-  console.log(`✔ ${doctorsSeed.length} Doctors seeded`);
 
-  // 4. Seed Staff
-  for (const st of staffSeed) {
-    await prisma.staff.upsert({
-      where: { staffId: st.staffId },
-      update: {
-        name: st.name,
-        phone: st.phone,
-        email: st.email,
-        shift: st.shift,
-        workingDays: JSON.stringify(st.workingDays),
-        startTime: st.startTime,
-        endTime: st.endTime,
-        scheduledHours: st.scheduledHours,
-        workedHours: st.workedHours,
-        attendance: st.attendance,
-        status: st.status
-      },
-      create: {
-        staffId: st.staffId,
-        userId: st.userId,
-        name: st.name,
-        phone: st.phone,
-        email: st.email,
-        username: st.username,
-        shift: st.shift,
-        workingDays: JSON.stringify(st.workingDays),
-        startTime: st.startTime,
-        endTime: st.endTime,
-        scheduledHours: st.scheduledHours,
-        workedHours: st.workedHours,
-        attendance: st.attendance,
-        status: st.status
+  // 4. Ensure Doctors baseline if none exist
+  const doctorCount = await prisma.doctor.count();
+  if (doctorCount === 0 || isForce) {
+    for (const doc of doctorsSeed) {
+      const existing = await prisma.doctor.findFirst({
+        where: {
+          OR: [
+            { doctorId: doc.doctorId },
+            { email: doc.email },
+            { registrationNumber: doc.registrationNumber }
+          ]
+        }
+      });
+      if (!existing) {
+        // Ensure user account for doctor exists
+        const doctorUser = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { id: doc.userId },
+              { email: doc.email }
+            ]
+          }
+        });
+        if (!doctorUser) {
+          await prisma.user.create({
+            data: {
+              id: doc.userId,
+              username: 'doctor@viora',
+              password: bcrypt.hashSync('doctor@123', 10),
+              role: 'DOCTOR',
+              name: doc.name,
+              email: doc.email,
+              phone: doc.phone,
+              referenceId: doc.doctorId,
+              status: 'Active'
+            }
+          });
+        }
+        await prisma.doctor.create({
+          data: {
+            doctorId: doc.doctorId,
+            userId: doc.userId,
+            name: doc.name,
+            gender: doc.gender,
+            specialization: doc.specialization,
+            qualification: doc.qualification,
+            registrationNumber: doc.registrationNumber,
+            phone: doc.phone,
+            email: doc.email,
+            consultationRates: JSON.stringify(doc.consultationRates),
+            procedureRates: JSON.stringify(doc.procedureRates || {}),
+            workingDays: JSON.stringify(doc.workingDays),
+            workingHours: JSON.stringify(doc.workingHours),
+            breakTimes: JSON.stringify(doc.breakTimes),
+            status: doc.status
+          }
+        });
       }
-    });
+    }
+    console.log(`✔ Baseline doctors verified`);
+  } else {
+    console.log(`✔ Doctor records already exist (${doctorCount} doctors)`);
   }
-  console.log(`✔ ${staffSeed.length} Staff members seeded`);
 
-  // 5. Seed Procedures Catalog
-  for (const p of proceduresSeed) {
-    await prisma.procedure.upsert({
-      where: { procedureId: p.procedureId },
-      update: {
-        name: p.name,
-        defaultPrice: p.defaultPrice,
-        defaultDoctorCut: p.defaultDoctorCut,
-        description: p.description,
-        status: p.status
-      },
-      create: {
-        procedureId: p.procedureId,
-        name: p.name,
-        defaultPrice: p.defaultPrice,
-        defaultDoctorCut: p.defaultDoctorCut,
-        description: p.description,
-        status: p.status
+  // 5. Ensure Staff baseline if none exist
+  const staffCount = await prisma.staff.count();
+  if (staffCount === 0 || isForce) {
+    for (const st of staffSeed) {
+      const existing = await prisma.staff.findUnique({ where: { staffId: st.staffId } });
+      if (!existing) {
+        await prisma.staff.create({
+          data: {
+            staffId: st.staffId,
+            userId: st.userId,
+            name: st.name,
+            phone: st.phone,
+            email: st.email,
+            username: st.username,
+            shift: st.shift,
+            workingDays: JSON.stringify(st.workingDays),
+            startTime: st.startTime,
+            endTime: st.endTime,
+            scheduledHours: st.scheduledHours,
+            workedHours: st.workedHours,
+            attendance: st.attendance,
+            status: st.status
+          }
+        });
       }
-    });
+    }
+    console.log(`✔ Baseline staff verified`);
+  } else {
+    console.log(`✔ Staff records already exist (${staffCount} staff)`);
   }
-  console.log(`✔ ${proceduresSeed.length} Procedures seeded`);
 
-  // 6. Seed Patients
-  for (const pat of patientsSeed) {
-    await prisma.patient.upsert({
-      where: { patientId: pat.patientId },
-      update: {
-        name: pat.name,
-        dateOfBirth: pat.dateOfBirth,
-        age: pat.age,
-        gender: pat.gender,
-        phone: pat.phone,
-        email: pat.email,
-        address: pat.address,
-        city: pat.city,
-        state: pat.state,
-        pinCode: pat.pinCode,
-        allergies: pat.allergies,
-        medicalHistory: pat.medicalHistory,
-        emergencyContact: pat.emergencyContact
-      },
-      create: {
-        patientId: pat.patientId,
-        name: pat.name,
-        dateOfBirth: pat.dateOfBirth,
-        age: pat.age,
-        gender: pat.gender,
-        phone: pat.phone,
-        email: pat.email,
-        address: pat.address,
-        city: pat.city,
-        state: pat.state,
-        pinCode: pat.pinCode,
-        allergies: pat.allergies,
-        medicalHistory: pat.medicalHistory,
-        emergencyContact: pat.emergencyContact
-      }
-    });
+  // 6. Demo Patients, Appointments, Consultations, Prescriptions, Bills:
+  // ONLY seeded if database has ZERO patients and ZERO bills and --force is explicitly provided.
+  if (existingPatientCount === 0 && isForce) {
+    console.log('ℹ Seeding initial demo clinical records (--force mode enabled on empty database)...');
+
+    for (const pat of patientsSeed) {
+      await prisma.patient.upsert({
+        where: { patientId: pat.patientId },
+        update: {},
+        create: {
+          patientId: pat.patientId,
+          name: pat.name,
+          dateOfBirth: pat.dateOfBirth,
+          age: pat.age,
+          gender: pat.gender,
+          phone: pat.phone,
+          email: pat.email,
+          address: pat.address,
+          city: pat.city,
+          state: pat.state,
+          pinCode: pat.pinCode,
+          allergies: pat.allergies,
+          medicalHistory: pat.medicalHistory,
+          emergencyContact: pat.emergencyContact
+        }
+      });
+    }
+
+    for (const apt of appointmentsSeed) {
+      await prisma.appointment.upsert({
+        where: { appointmentId: apt.appointmentId },
+        update: {},
+        create: {
+          appointmentId: apt.appointmentId,
+          patientId: apt.patientId,
+          doctorId: apt.doctorId,
+          appointmentType: apt.appointmentType,
+          procedureId: apt.procedureId || null,
+          procedureName: apt.procedureName || null,
+          date: apt.date,
+          time: apt.time,
+          status: apt.status,
+          queueNumber: apt.queueNumber,
+          waitingTimeMinutes: apt.waitingTimeMinutes || 0
+        }
+      });
+    }
+
+    for (const cns of consultationsSeed) {
+      await prisma.consultation.upsert({
+        where: { consultationId: cns.consultationId },
+        update: {},
+        create: {
+          consultationId: cns.consultationId,
+          appointmentId: cns.appointmentId || null,
+          patientId: cns.patientId,
+          doctorId: cns.doctorId,
+          chiefComplaint: cns.chiefComplaint,
+          symptoms: cns.symptoms,
+          diagnosis: cns.diagnosis,
+          vitals: JSON.stringify(cns.vitals || {}),
+          examination: cns.examination,
+          treatment: cns.treatment,
+          procedureDetails: cns.procedureDetails,
+          privateNotes: cns.privateNotes,
+          status: cns.status
+        }
+      });
+    }
+
+    for (const rx of prescriptionsSeed) {
+      await prisma.prescription.upsert({
+        where: { prescriptionId: rx.prescriptionId },
+        update: {},
+        create: {
+          prescriptionId: rx.prescriptionId,
+          consultationId: rx.consultationId || null,
+          patientId: rx.patientId,
+          doctorId: rx.doctorId,
+          medicines: JSON.stringify(rx.medicines || []),
+          diagnosis: rx.diagnosis,
+          advice: rx.advice,
+          followUpDate: rx.followUpDate,
+          procedures: JSON.stringify(rx.procedures || [])
+        }
+      });
+    }
+
+    for (const b of billsSeed) {
+      await prisma.bill.upsert({
+        where: { billId: b.billId },
+        update: {},
+        create: {
+          billId: b.billId,
+          invoiceNumber: b.invoiceNumber,
+          patientId: b.patientId,
+          doctorId: b.doctorId,
+          appointmentId: b.appointmentId || null,
+          consultationType: b.consultationType,
+          consultationFee: b.consultationFee,
+          doctorCutConsultation: b.doctorCutConsultation,
+          clinicShareConsultation: b.clinicShareConsultation,
+          procedures: JSON.stringify(b.procedures || []),
+          subtotal: b.subtotal,
+          discount: b.discount,
+          tax: b.tax,
+          total: b.total,
+          paid: b.paid,
+          balance: b.balance,
+          paymentMethod: b.paymentMethod,
+          paymentStatus: b.paymentStatus,
+          doctorCutTotal: b.doctorCutTotal,
+          clinicShareTotal: b.clinicShareTotal
+        }
+      });
+    }
+    console.log('✔ Demo clinical records seeded');
+  } else {
+    console.log('✔ Clinical patient records protected (no demo data overwriting)');
   }
-  console.log(`✔ ${patientsSeed.length} Patients seeded`);
 
-  // 7. Seed Appointments
-  for (const apt of appointmentsSeed) {
-    await prisma.appointment.upsert({
-      where: { appointmentId: apt.appointmentId },
-      update: {
-        appointmentType: apt.appointmentType,
-        procedureId: apt.procedureId || null,
-        procedureName: apt.procedureName || null,
-        date: apt.date,
-        time: apt.time,
-        status: apt.status,
-        queueNumber: apt.queueNumber,
-        waitingTimeMinutes: apt.waitingTimeMinutes || 0
-      },
-      create: {
-        appointmentId: apt.appointmentId,
-        patientId: apt.patientId,
-        doctorId: apt.doctorId,
-        appointmentType: apt.appointmentType,
-        procedureId: apt.procedureId || null,
-        procedureName: apt.procedureName || null,
-        date: apt.date,
-        time: apt.time,
-        status: apt.status,
-        queueNumber: apt.queueNumber,
-        waitingTimeMinutes: apt.waitingTimeMinutes || 0
-      }
-    });
-  }
-  console.log(`✔ ${appointmentsSeed.length} Appointments seeded`);
-
-  // 8. Seed Consultations
-  for (const cns of consultationsSeed) {
-    await prisma.consultation.upsert({
-      where: { consultationId: cns.consultationId },
-      update: {
-        chiefComplaint: cns.chiefComplaint,
-        symptoms: cns.symptoms,
-        diagnosis: cns.diagnosis,
-        vitals: JSON.stringify(cns.vitals || {}),
-        examination: cns.examination,
-        treatment: cns.treatment,
-        procedureDetails: cns.procedureDetails,
-        privateNotes: cns.privateNotes,
-        status: cns.status
-      },
-      create: {
-        consultationId: cns.consultationId,
-        appointmentId: cns.appointmentId || null,
-        patientId: cns.patientId,
-        doctorId: cns.doctorId,
-        chiefComplaint: cns.chiefComplaint,
-        symptoms: cns.symptoms,
-        diagnosis: cns.diagnosis,
-        vitals: JSON.stringify(cns.vitals || {}),
-        examination: cns.examination,
-        treatment: cns.treatment,
-        procedureDetails: cns.procedureDetails,
-        privateNotes: cns.privateNotes,
-        status: cns.status
-      }
-    });
-  }
-  console.log(`✔ ${consultationsSeed.length} Consultations seeded`);
-
-  // 9. Seed Prescriptions
-  for (const rx of prescriptionsSeed) {
-    await prisma.prescription.upsert({
-      where: { prescriptionId: rx.prescriptionId },
-      update: {
-        medicines: JSON.stringify(rx.medicines || []),
-        diagnosis: rx.diagnosis,
-        advice: rx.advice,
-        followUpDate: rx.followUpDate,
-        procedures: JSON.stringify(rx.procedures || [])
-      },
-      create: {
-        prescriptionId: rx.prescriptionId,
-        consultationId: rx.consultationId || null,
-        patientId: rx.patientId,
-        doctorId: rx.doctorId,
-        medicines: JSON.stringify(rx.medicines || []),
-        diagnosis: rx.diagnosis,
-        advice: rx.advice,
-        followUpDate: rx.followUpDate,
-        procedures: JSON.stringify(rx.procedures || [])
-      }
-    });
-  }
-  console.log(`✔ ${prescriptionsSeed.length} Prescriptions seeded`);
-
-  // 10. Seed Bills
-  for (const b of billsSeed) {
-    await prisma.bill.upsert({
-      where: { billId: b.billId },
-      update: {
-        invoiceNumber: b.invoiceNumber,
-        consultationType: b.consultationType,
-        consultationFee: b.consultationFee,
-        doctorCutConsultation: b.doctorCutConsultation,
-        clinicShareConsultation: b.clinicShareConsultation,
-        procedures: JSON.stringify(b.procedures || []),
-        subtotal: b.subtotal,
-        discount: b.discount,
-        tax: b.tax,
-        total: b.total,
-        paid: b.paid,
-        balance: b.balance,
-        paymentMethod: b.paymentMethod,
-        paymentStatus: b.paymentStatus,
-        doctorCutTotal: b.doctorCutTotal,
-        clinicShareTotal: b.clinicShareTotal
-      },
-      create: {
-        billId: b.billId,
-        invoiceNumber: b.invoiceNumber,
-        patientId: b.patientId,
-        doctorId: b.doctorId,
-        appointmentId: b.appointmentId || null,
-        consultationType: b.consultationType,
-        consultationFee: b.consultationFee,
-        doctorCutConsultation: b.doctorCutConsultation,
-        clinicShareConsultation: b.clinicShareConsultation,
-        procedures: JSON.stringify(b.procedures || []),
-        subtotal: b.subtotal,
-        discount: b.discount,
-        tax: b.tax,
-        total: b.total,
-        paid: b.paid,
-        balance: b.balance,
-        paymentMethod: b.paymentMethod,
-        paymentStatus: b.paymentStatus,
-        doctorCutTotal: b.doctorCutTotal,
-        clinicShareTotal: b.clinicShareTotal
-      }
-    });
-  }
-  console.log(`✔ ${billsSeed.length} Bills seeded`);
-
-  console.log('✅ VIORA PRISMA DATABASE SEEDED SUCCESSFULLY!');
+  console.log('✅ VIORA DATABASE INITIALIZATION CHECK COMPLETED SAFELY.');
 }
 
 main()

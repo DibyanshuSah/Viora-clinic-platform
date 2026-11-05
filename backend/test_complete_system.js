@@ -1,6 +1,6 @@
 const assert = require('assert');
 const app = require('./src/app');
-const db = require('./src/config/database');
+const prisma = require('./src/config/prisma');
 const http = require('http');
 
 let server;
@@ -61,11 +61,11 @@ async function runSystemVerification() {
   try {
     // 1. Authenticate as Staff and Admin
     console.log('[STEP 1] Authenticating Staff & Admin users...');
-    const staffLogin = await request('POST', '/auth/login', { username: 'staff@reception', password: 'staff@123' });
+    const staffLogin = await request('POST', '/auth/login', { username: 'staff1', password: 'staff123' });
     assert.strictEqual(staffLogin.status, 200, 'Staff login failed');
     const staffToken = staffLogin.body.data.token;
 
-    const adminLogin = await request('POST', '/auth/login', { username: 'viora@admin', password: 'vioraclinic@2026' });
+    const adminLogin = await request('POST', '/auth/login', { username: 'admin', password: 'admin123' });
     assert.strictEqual(adminLogin.status, 200, 'Admin login failed');
     const adminToken = adminLogin.body.data.token;
     console.log('✓ Staff & Admin authenticated successfully.\n');
@@ -144,14 +144,14 @@ async function runSystemVerification() {
 
     // 5. Test Idempotency on repeated "End" clicks
     console.log('[STEP 5] Testing Idempotency on repeated clicks...');
-    const billCount1 = db.bills.length;
-    const msgCount1 = db.whatsappMessages.length;
+    const billCount1 = await prisma.bill.count();
+    const msgCount1 = await prisma.whatsAppMessage.count();
 
     const repeatRes = await request('POST', `/appointments/${appointment.appointmentId}/end-visit`, {}, { Authorization: `Bearer ${staffToken}` });
     assert.strictEqual(repeatRes.status, 200);
 
-    const billCount2 = db.bills.length;
-    const msgCount2 = db.whatsappMessages.length;
+    const billCount2 = await prisma.bill.count();
+    const msgCount2 = await prisma.whatsAppMessage.count();
     assert.strictEqual(billCount1, billCount2, 'Repeated clicks must NOT create duplicate bills');
     assert.strictEqual(msgCount1, msgCount2, 'Repeated clicks must NOT dispatch duplicate WhatsApp messages');
     console.log('✓ Idempotency verified: 0 duplicate bills, 0 duplicate WhatsApp messages created.\n');
@@ -200,10 +200,13 @@ async function runSystemVerification() {
 
     // 9. WhatsApp Delivery Failure & Staff Retry
     console.log('[STEP 9] Testing WhatsApp Failure Recording & Staff Retry...');
-    // Simulate carrier failure on the message
-    const msgRecord = db.whatsappMessages.find(m => m.id === endData.whatsappMessage.id);
-    msgRecord.status = 'Failed';
-    msgRecord.failureReason = 'Carrier unreachable (Simulated)';
+    const msgRecord = await prisma.whatsAppMessage.update({
+      where: { id: endData.whatsappMessage.id },
+      data: {
+        status: 'Failed',
+        failureReason: 'Carrier unreachable (Simulated)'
+      }
+    });
 
     // Staff retries message
     const retryRes = await request('POST', `/billing/whatsapp/${msgRecord.id}/retry`, {}, { Authorization: `Bearer ${staffToken}` });
@@ -260,7 +263,6 @@ async function runSystemVerification() {
       server.close(() => {
         process.exit(process.exitCode || 0);
       });
-      // Fallback timer if connections linger
       setTimeout(() => process.exit(process.exitCode || 0), 1000);
     } else {
       process.exit(process.exitCode || 0);

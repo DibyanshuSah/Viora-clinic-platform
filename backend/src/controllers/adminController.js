@@ -1,43 +1,45 @@
-const db = require('../config/database');
+const prisma = require('../config/prisma');
 const env = require('../config/environment');
 const whatsappService = require('../services/whatsappService');
 const { successResponse } = require('../utils/responseHandler');
 
 class AdminController {
   /**
-   * Retrieve system audit logs with filters (ADMIN role only)
+   * Retrieve system audit logs with filters (ADMIN role only) directly from SQLite
    */
-  getAuditLogs(req, res, next) {
+  async getAuditLogs(req, res, next) {
     try {
       const { action, resourceType, status, search, limit = 100 } = req.query;
-      let logs = [...db.auditLogs];
+      const where = {};
 
       if (action) {
-        logs = logs.filter(l => l.action.toLowerCase() === action.toLowerCase());
+        where.action = { equals: action };
       }
       if (resourceType) {
-        logs = logs.filter(l => l.resourceType.toLowerCase() === resourceType.toLowerCase());
+        where.resourceType = { equals: resourceType };
       }
       if (status) {
-        logs = logs.filter(l => l.status.toLowerCase() === status.toLowerCase());
+        where.status = { equals: status };
       }
       if (search) {
-        const q = search.toLowerCase();
-        logs = logs.filter(l =>
-          (l.action && l.action.toLowerCase().includes(q)) ||
-          (l.userName && l.userName.toLowerCase().includes(q)) ||
-          (l.details && l.details.toLowerCase().includes(q)) ||
-          (l.resourceId && l.resourceId.toLowerCase().includes(q))
-        );
+        where.OR = [
+          { action: { contains: search } },
+          { userName: { contains: search } },
+          { details: { contains: search } },
+          { resourceId: { contains: search } }
+        ];
       }
 
-      // Sort newest first
-      logs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      const paged = logs.slice(0, parseInt(limit, 10));
+      const total = await prisma.systemAuditLog.count({ where });
+      const logs = await prisma.systemAuditLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: parseInt(limit, 10) || 100
+      });
 
       return successResponse(res, 'System audit logs retrieved successfully', {
-        total: logs.length,
-        logs: paged
+        total,
+        logs
       });
     } catch (err) {
       next(err);
@@ -45,11 +47,11 @@ class AdminController {
   }
 
   /**
-   * Retrieve WhatsApp and link expiry configuration
+   * Retrieve WhatsApp and link expiry configuration directly from SQLite
    */
-  getWhatsAppSettings(req, res, next) {
+  async getWhatsAppSettings(req, res, next) {
     try {
-      const profile = db.clinicProfile || {};
+      const profile = await prisma.clinicProfile.findFirst() || {};
       const token = profile.whatsappAccessToken || env.whatsappAccessToken || '';
       const maskedToken = token ? `${token.substring(0, 6)}...${token.slice(-4)}` : '';
 
@@ -73,9 +75,9 @@ class AdminController {
   }
 
   /**
-   * Update WhatsApp and link expiry configuration
+   * Update WhatsApp and link expiry configuration directly in SQLite
    */
-  updateWhatsAppSettings(req, res, next) {
+  async updateWhatsAppSettings(req, res, next) {
     try {
       const {
         whatsappEnabled,
@@ -87,47 +89,62 @@ class AdminController {
         whatsappAutoSendOnEnd
       } = req.body;
 
-      if (!db.clinicProfile) {
-        db.clinicProfile = {};
+      let profile = await prisma.clinicProfile.findFirst();
+      if (!profile) {
+        profile = await prisma.clinicProfile.create({
+          data: {
+            id: 'viora-primary',
+            clinicName: 'VIORA Healthcare'
+          }
+        });
       }
+
+      const updateData = {};
 
       if (whatsappEnabled !== undefined) {
-        db.clinicProfile.whatsappEnabled = Boolean(whatsappEnabled);
+        updateData.whatsappEnabled = Boolean(whatsappEnabled);
       }
       if (whatsappApiUrl !== undefined) {
-        db.clinicProfile.whatsappApiUrl = String(whatsappApiUrl).trim();
+        updateData.whatsappApiUrl = String(whatsappApiUrl).trim();
       }
       if (whatsappPhoneNumberId !== undefined) {
-        db.clinicProfile.whatsappPhoneNumberId = String(whatsappPhoneNumberId).trim();
+        updateData.whatsappPhoneNumberId = String(whatsappPhoneNumberId).trim();
       }
       if (whatsappBusinessAccountId !== undefined) {
-        db.clinicProfile.whatsappBusinessAccountId = String(whatsappBusinessAccountId).trim();
+        updateData.whatsappBusinessAccountId = String(whatsappBusinessAccountId).trim();
       }
-      // Only update token if a new non-masked value was provided
       if (whatsappAccessToken && !whatsappAccessToken.includes('...')) {
-        db.clinicProfile.whatsappAccessToken = String(whatsappAccessToken).trim();
+        updateData.whatsappAccessToken = String(whatsappAccessToken).trim();
       }
       if (whatsappDefaultExpiryDays !== undefined) {
-        db.clinicProfile.whatsappDefaultExpiryDays = Math.max(1, parseInt(whatsappDefaultExpiryDays, 10));
+        updateData.whatsappDefaultExpiryDays = Math.max(1, parseInt(whatsappDefaultExpiryDays, 10));
       }
       if (whatsappAutoSendOnEnd !== undefined) {
-        db.clinicProfile.whatsappAutoSendOnEnd = Boolean(whatsappAutoSendOnEnd);
+        updateData.whatsappAutoSendOnEnd = Boolean(whatsappAutoSendOnEnd);
       }
 
-      db.clinicProfile.updatedAt = new Date().toISOString();
-
-      db.logAuditAction({
-        action: 'SETTINGS_UPDATED',
-        resourceType: 'SETTING',
-        user: req.user,
-        details: `Updated WhatsApp configuration and bill link policies (Expiry: ${db.clinicProfile.whatsappDefaultExpiryDays} days, Auto-send: ${db.clinicProfile.whatsappAutoSendOnEnd})`
+      const updated = await prisma.clinicProfile.update({
+        where: { id: profile.id },
+        data: updateData
       });
 
+      await prisma.systemAuditLog.create({
+        data: {
+          action: 'SETTINGS_UPDATED',
+          resourceType: 'SETTING',
+          userId: req.user?.userId || req.user?.id || null,
+          userName: req.user?.name || req.user?.username || 'Admin',
+          userRole: req.user?.role || 'ADMIN',
+          status: 'SUCCESS',
+          details: `Updated WhatsApp configuration and bill link policies (Expiry: ${updated.whatsappDefaultExpiryDays} days, Auto-send: ${updated.whatsappAutoSendOnEnd})`
+        }
+      }).catch(() => {});
+
       return successResponse(res, 'WhatsApp & Security settings updated successfully', {
-        whatsappEnabled: db.clinicProfile.whatsappEnabled,
-        whatsappPhoneNumberId: db.clinicProfile.whatsappPhoneNumberId,
-        whatsappDefaultExpiryDays: db.clinicProfile.whatsappDefaultExpiryDays,
-        whatsappAutoSendOnEnd: db.clinicProfile.whatsappAutoSendOnEnd
+        whatsappEnabled: updated.whatsappEnabled,
+        whatsappPhoneNumberId: updated.whatsappPhoneNumberId,
+        whatsappDefaultExpiryDays: updated.whatsappDefaultExpiryDays,
+        whatsappAutoSendOnEnd: updated.whatsappAutoSendOnEnd
       });
     } catch (err) {
       next(err);

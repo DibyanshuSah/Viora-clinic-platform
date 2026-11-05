@@ -1,76 +1,97 @@
-const db = require('../config/database');
+const prisma = require('../config/prisma');
+const idGenerator = require('../utils/idGenerator');
 
 class ProcedureService {
-  getAllProcedures() {
-    return db.procedures;
+  async getAllProcedures() {
+    return await prisma.procedure.findMany({
+      orderBy: { createdAt: 'asc' }
+    });
   }
 
-  getProcedureById(procedureId) {
-    const proc = db.procedures.find(p => p.procedureId === procedureId);
+  async getProcedureById(procedureId) {
+    const proc = await prisma.procedure.findUnique({
+      where: { procedureId }
+    });
     if (!proc) {
       throw { statusCode: 404, message: 'Procedure not found' };
     }
     return proc;
   }
 
-  createProcedure(data) {
+  async createProcedure(data) {
     const { name, defaultPrice, defaultDoctorCut, description = '', status = 'Active' } = data;
     if (!name || defaultPrice === undefined) {
       throw { statusCode: 400, message: 'Procedure Name and Default Price are required' };
     }
 
     const trimmedName = name.trim();
-    // Check if procedure already exists by name (case-insensitive)
-    const existing = db.procedures.find(p => p.name && p.name.trim().toLowerCase() === trimmedName.toLowerCase());
+    // Check if procedure already exists by name
+    const existing = await prisma.procedure.findFirst({
+      where: { name: trimmedName }
+    });
+
     if (existing) {
-      existing.defaultPrice = Number(defaultPrice);
-      if (defaultDoctorCut !== undefined) existing.defaultDoctorCut = Number(defaultDoctorCut);
-      if (description) existing.description = description.trim();
-      existing.status = 'Active';
-      existing.updatedAt = new Date().toISOString();
-      return existing;
+      return await prisma.procedure.update({
+        where: { procedureId: existing.procedureId },
+        data: {
+          defaultPrice: Number(defaultPrice),
+          defaultDoctorCut: defaultDoctorCut !== undefined ? Number(defaultDoctorCut) : existing.defaultDoctorCut,
+          description: description ? description.trim() : existing.description,
+          status: 'Active'
+        }
+      });
     }
 
-    const procedureId = db.nextProcedureId();
-    const newProcedure = {
-      procedureId,
-      name: trimmedName,
-      defaultPrice: Number(defaultPrice),
-      defaultDoctorCut: defaultDoctorCut !== undefined ? Number(defaultDoctorCut) : Math.round(Number(defaultPrice) * 0.3),
-      description: description ? description.trim() : '',
-      status,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    const procedureId = await idGenerator.nextProcedureId();
+    const priceNum = Number(defaultPrice);
+    const doctorCutNum = defaultDoctorCut !== undefined ? Number(defaultDoctorCut) : Math.round(priceNum * 0.3);
 
-    db.procedures.push(newProcedure);
-    return newProcedure;
+    return await prisma.procedure.create({
+      data: {
+        procedureId,
+        name: trimmedName,
+        defaultPrice: priceNum,
+        defaultDoctorCut: doctorCutNum,
+        description: description ? description.trim() : '',
+        status
+      }
+    });
   }
 
-  updateProcedure(procedureId, data) {
-    const index = db.procedures.findIndex(p => p.procedureId === procedureId);
-    if (index === -1) {
+  async updateProcedure(procedureId, data) {
+    const proc = await prisma.procedure.findUnique({
+      where: { procedureId }
+    });
+    if (!proc) {
       throw { statusCode: 404, message: 'Procedure not found' };
     }
 
-    db.procedures[index] = {
-      ...db.procedures[index],
-      ...data,
-      procedureId: db.procedures[index].procedureId,
-      defaultPrice: data.defaultPrice !== undefined ? Number(data.defaultPrice) : db.procedures[index].defaultPrice,
-      defaultDoctorCut: data.defaultDoctorCut !== undefined ? Number(data.defaultDoctorCut) : db.procedures[index].defaultDoctorCut
-    };
+    const updatePayload = {};
+    if (data.name !== undefined) updatePayload.name = data.name.trim();
+    if (data.defaultPrice !== undefined) updatePayload.defaultPrice = Number(data.defaultPrice);
+    if (data.defaultDoctorCut !== undefined) updatePayload.defaultDoctorCut = Number(data.defaultDoctorCut);
+    if (data.description !== undefined) updatePayload.description = data.description.trim();
+    if (data.status !== undefined) updatePayload.status = data.status;
 
-    return db.procedures[index];
+    return await prisma.procedure.update({
+      where: { procedureId },
+      data: updatePayload
+    });
   }
 
-  deleteProcedure(procedureId) {
-    const index = db.procedures.findIndex(p => p.procedureId === procedureId);
-    if (index === -1) {
+  async deleteProcedure(procedureId) {
+    const proc = await prisma.procedure.findUnique({
+      where: { procedureId }
+    });
+    if (!proc) {
       throw { statusCode: 404, message: 'Procedure not found' };
     }
 
-    db.procedures[index].status = 'Inactive';
+    await prisma.procedure.update({
+      where: { procedureId },
+      data: { status: 'Inactive' }
+    });
+
     return { message: 'Procedure deactivated successfully' };
   }
 }

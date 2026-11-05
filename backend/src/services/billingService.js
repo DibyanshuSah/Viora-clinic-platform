@@ -1,35 +1,75 @@
-const db = require('../config/database');
+const prisma = require('../config/prisma');
+const idGenerator = require('../utils/idGenerator');
+const { safeParse, safeStringify } = require('../utils/jsonUtils');
+const env = require('../config/environment');
 
 class BillingService {
-  getAllBills(filters = {}) {
+  /**
+   * Retrieve all bills with optional filtering
+   */
+  async getAllBills(filters = {}) {
     const { patientId, doctorId, paymentStatus, date } = filters;
-    let list = [...db.bills];
+    const where = {};
 
-    if (patientId) {
-      list = list.filter(b => b.patientId === patientId);
-    }
-    if (doctorId) {
-      list = list.filter(b => b.doctorId === doctorId);
-    }
+    if (patientId) where.patientId = patientId;
+    if (doctorId) where.doctorId = doctorId;
     if (paymentStatus) {
-      list = list.filter(b => b.paymentStatus.toLowerCase() === paymentStatus.toLowerCase());
+      where.paymentStatus = { equals: paymentStatus };
     }
     if (date) {
-      list = list.filter(b => b.createdAt.startsWith(date));
+      where.createdAt = {
+        gte: new Date(`${date}T00:00:00.000Z`),
+        lte: new Date(`${date}T23:59:59.999Z`)
+      };
     }
 
-    return list.map(b => this.populateBill(b)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const bills = await prisma.bill.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        patient: true,
+        doctor: true,
+        appointment: true
+      }
+    });
+
+    const populated = await Promise.all(bills.map(b => this.populateBill(b)));
+    return populated;
   }
 
-  getBillById(billId) {
-    const bill = db.bills.find(b => b.billId === billId || b.invoiceNumber === billId);
+  /**
+   * Retrieve a bill by billId or invoiceNumber
+   */
+  async getBillById(billId) {
+    if (!billId) {
+      throw { statusCode: 400, message: 'Bill ID or Invoice Number is required' };
+    }
+
+    const bill = await prisma.bill.findFirst({
+      where: {
+        OR: [
+          { billId },
+          { invoiceNumber: billId }
+        ]
+      },
+      include: {
+        patient: true,
+        doctor: true,
+        appointment: true
+      }
+    });
+
     if (!bill) {
       throw { statusCode: 404, message: 'Bill not found' };
     }
+
     return this.populateBill(bill);
   }
 
-  calculateBillAmounts({
+  /**
+   * Calculate financial breakdown for bill items
+   */
+  async calculateBillAmounts({
     consultationType = 'Consultation',
     consultationFee,
     doctor,
@@ -43,13 +83,19 @@ class BillingService {
     let docCutConsultation = 0;
     let clinicShareConsultation = 0;
 
+    const doctorRates = typeof doctor?.consultationRates === 'string'
+      ? safeParse(doctor.consultationRates, {})
+      : (doctor?.consultationRates || {});
+
     if (consultationType === 'Consultation') {
       finalConsultationFee = consultationFee !== undefined
         ? Number(consultationFee)
-        : Number(doctor?.consultationRates?.consultationFee || 0);
-      
-      docCutConsultation = doctor?.consultationRates?.doctorCut || 0;
-      clinicShareConsultation = doctor?.consultationRates?.clinicShare || (finalConsultationFee - docCutConsultation);
+        : Number(doctorRates.consultationFee || 0);
+
+      docCutConsultation = doctorRates.doctorCut !== undefined ? Number(doctorRates.doctorCut) : 0;
+      clinicShareConsultation = doctorRates.clinicShare !== undefined
+        ? Number(doctorRates.clinicShare)
+        : (finalConsultationFee - docCutConsultation);
     } else if (consultationType === 'Follow-up Visit (Zero Bill)' || consultationType === 'Follow-up Visit') {
       finalConsultationFee = 0;
       docCutConsultation = 0;
@@ -64,27 +110,39 @@ class BillingService {
     let doctorProcedureCutsTotal = 0;
     let clinicProcedureShareTotal = 0;
 
-    const processedProcedures = (procedures || []).map(p => {
-      // Find procedure in db.procedures by procedureId or by trimmed name
-      let procDef = db.procedures.find(pr =>
-        (p.procedureId && pr.procedureId === p.procedureId) ||
-        (p.name && pr.name && pr.name.trim().toLowerCase() === p.name.trim().toLowerCase())
-      );
+    const doctorProcedureRates = typeof doctor?.procedureRates === 'string'
+      ? safeParse(doctor.procedureRates, {})
+      : (doctor?.procedureRates || {});
 
-      // If procedure is not yet in the DB catalog, store it in the DB now
+    const processedProcedures = [];
+
+    for (const p of (procedures || [])) {
+      // Find procedure in catalog by procedureId or name
+      let procDef = null;
+      if (p.procedureId) {
+        procDef = await prisma.procedure.findUnique({ where: { procedureId: p.procedureId } });
+      }
       if (!procDef && p.name && p.name.trim()) {
-        const newProcId = db.nextProcedureId();
-        procDef = {
-          procedureId: newProcId,
-          name: p.name.trim(),
-          defaultPrice: Number(p.price !== undefined ? p.price : (p.rate !== undefined ? p.rate : 0)),
-          defaultDoctorCut: Number(p.doctorCut !== undefined ? p.doctorCut : Math.round(Number(p.price || p.rate || 0) * 0.3)),
-          description: p.description ? p.description.trim() : '',
-          status: 'Active',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        db.procedures.push(procDef);
+        procDef = await prisma.procedure.findFirst({
+          where: { name: { equals: p.name.trim() } }
+        });
+      }
+
+      // If procedure is not in catalog, create it
+      if (!procDef && p.name && p.name.trim()) {
+        const newProcId = await idGenerator.nextProcedureId();
+        const priceVal = Number(p.price !== undefined ? p.price : (p.rate !== undefined ? p.rate : 0));
+        const cutVal = Number(p.doctorCut !== undefined ? p.doctorCut : Math.round(priceVal * 0.3));
+        procDef = await prisma.procedure.create({
+          data: {
+            procedureId: newProcId,
+            name: p.name.trim(),
+            defaultPrice: priceVal,
+            defaultDoctorCut: cutVal,
+            description: p.description ? p.description.trim() : '',
+            status: 'Active'
+          }
+        });
       }
 
       const procedureId = procDef ? procDef.procedureId : (p.procedureId || 'CUSTOM');
@@ -93,7 +151,7 @@ class BillingService {
       const qty = Math.max(1, Number(p.qty || 1));
       const lineAmount = price * qty;
 
-      const docRateOverride = doctor?.procedureRates && doctor.procedureRates[procedureId];
+      const docRateOverride = doctorProcedureRates[procedureId];
       let perUnitDocCut = 0;
       if (p.doctorCut !== undefined) {
         perUnitDocCut = Number(p.doctorCut);
@@ -110,7 +168,7 @@ class BillingService {
       doctorProcedureCutsTotal += totalDocCut;
       clinicProcedureShareTotal += totalClinicShare;
 
-      return {
+      processedProcedures.push({
         procedureId,
         name,
         price,
@@ -118,8 +176,8 @@ class BillingService {
         doctorCut: perUnitDocCut,
         clinicShare: price - perUnitDocCut,
         amount: lineAmount
-      };
-    });
+      });
+    }
 
     const subtotal = finalConsultationFee + procedureSubtotal;
     const discountAmt = Number(discount) || 0;
@@ -127,8 +185,6 @@ class BillingService {
     const total = Math.max(0, subtotal - discountAmt + taxAmt);
     let paidAmt = Number(paid) || 0;
 
-    // Once discount is added to the bill, it should not show Partially Paid; it should show Paid
-    // and paid amount covers the discounted grand total so balance is 0
     if (discountAmt > 0) {
       paidAmt = Math.max(paidAmt, total);
     }
@@ -169,7 +225,10 @@ class BillingService {
     };
   }
 
-  createBill(data, currentUser = null) {
+  /**
+   * Create a new Bill and Invoice
+   */
+  async createBill(data, currentUser = null) {
     const {
       patientId,
       doctorId,
@@ -189,31 +248,35 @@ class BillingService {
       throw { statusCode: 400, message: 'Patient ID and Doctor ID are required' };
     }
 
-    const patient = db.patients.find(p => p.patientId === patientId);
+    const patient = await prisma.patient.findUnique({ where: { patientId } });
     if (!patient) {
       throw { statusCode: 404, message: 'Patient not found' };
     }
 
-    // Update existing patient billing/contact info if provided
+    // Update patient contact info if provided
     if (patientUpdates && typeof patientUpdates === 'object') {
       const patientService = require('./patientService');
       const { patientId: _pId, createdAt: _cAt, ...fieldsToUpdate } = patientUpdates;
-      patientService.updatePatient(patient.patientId, fieldsToUpdate);
+      await patientService.updatePatient(patient.patientId, fieldsToUpdate);
     }
 
-    // CRITICAL REQUIREMENT: Do NOT create a new invoice for the same patient!
-    // If patient already has an existing invoice, delegate to edit/update that existing invoice!
-    const existingBill = db.bills.find(b => b.patientId === patientId);
+    // CRITICAL REQUIREMENT: Do NOT create duplicate invoice if patient already has an active invoice
+    const existingBill = await prisma.bill.findFirst({
+      where: {
+        patientId,
+        paymentStatus: { not: 'Cancelled' }
+      }
+    });
     if (existingBill) {
       return this.updateBill(existingBill.billId, data, currentUser);
     }
 
-    const doctor = db.doctors.find(d => d.doctorId === doctorId);
+    const doctor = await prisma.doctor.findUnique({ where: { doctorId } });
     if (!doctor) {
       throw { statusCode: 404, message: 'Doctor not found' };
     }
 
-    const calculated = this.calculateBillAmounts({
+    const calculated = await this.calculateBillAmounts({
       consultationType,
       consultationFee,
       doctor,
@@ -224,61 +287,72 @@ class BillingService {
       paymentStatus
     });
 
-    const { billId, invoiceNumber } = db.nextBillId();
+    const { billId, invoiceNumber } = await idGenerator.nextBillId();
 
-    const newBill = {
-      billId,
-      invoiceNumber,
-      patientId,
-      doctorId,
-      appointmentId: appointmentId || null,
-      consultationType,
-      consultationFee: calculated.consultationFee,
-      doctorCutConsultation: calculated.doctorCutConsultation,
-      clinicShareConsultation: calculated.clinicShareConsultation,
-      procedures: calculated.procedures,
-      subtotal: calculated.subtotal,
-      discount: calculated.discount,
-      tax: calculated.tax,
-      total: calculated.total,
-      paid: calculated.paid,
-      balance: calculated.balance,
-      paymentMethod,
-      paymentStatus: calculated.paymentStatus,
-      doctorCutTotal: calculated.doctorCutTotal,
-      clinicShareTotal: calculated.clinicShareTotal,
-      createdBy: currentUser ? `${currentUser.name} (${currentUser.role})` : 'Front Desk',
-      createdAt: new Date().toISOString()
-    };
-
-    db.bills.push(newBill);
-
-    // Audit log
-    db.logBillingAction({
-      action: 'GENERATED',
-      billId: newBill.billId,
-      invoiceNumber: newBill.invoiceNumber,
-      patientId: newBill.patientId,
-      patientName: patient.name,
-      total: newBill.total,
-      details: `Invoice ${newBill.invoiceNumber} generated for ${patient.name} (${newBill.patientId}) - Total ₹${newBill.total.toLocaleString()} (${calculated.paymentStatus})`,
-      user: currentUser
+    const newBill = await prisma.bill.create({
+      data: {
+        billId,
+        invoiceNumber,
+        patientId,
+        doctorId,
+        appointmentId: appointmentId || null,
+        consultationType,
+        consultationFee: calculated.consultationFee,
+        doctorCutConsultation: calculated.doctorCutConsultation,
+        clinicShareConsultation: calculated.clinicShareConsultation,
+        procedures: safeStringify(calculated.procedures),
+        subtotal: calculated.subtotal,
+        discount: calculated.discount,
+        tax: calculated.tax,
+        total: calculated.total,
+        paid: calculated.paid,
+        balance: calculated.balance,
+        paymentMethod,
+        paymentStatus: calculated.paymentStatus,
+        doctorCutTotal: calculated.doctorCutTotal,
+        clinicShareTotal: calculated.clinicShareTotal,
+        createdBy: currentUser ? `${currentUser.name} (${currentUser.role})` : 'Front Desk'
+      }
     });
+
+    // Write audit log to SQLite
+    await prisma.systemAuditLog.create({
+      data: {
+        action: 'BILL_GENERATED',
+        resourceType: 'BILL',
+        resourceId: newBill.billId,
+        patientId: newBill.patientId,
+        userId: currentUser?.userId || currentUser?.id || null,
+        userName: currentUser?.name || currentUser?.username || 'Front Desk',
+        userRole: currentUser?.role || 'STAFF',
+        details: `Invoice ${newBill.invoiceNumber} generated for ${patient.name} (${newBill.patientId}) - Total ₹${newBill.total.toLocaleString()} (${calculated.paymentStatus})`
+      }
+    }).catch(err => console.error('[BillingService] Failed to write audit log:', err.message));
 
     return this.populateBill(newBill);
   }
 
-  updateBillPayment(billId, paymentData, currentUser = null) {
-    const index = db.bills.findIndex(b => b.billId === billId || b.invoiceNumber === billId);
-    if (index === -1) {
+  /**
+   * Update payment amount and payment status on an existing bill
+   */
+  async updateBillPayment(billId, paymentData, currentUser = null) {
+    const current = await prisma.bill.findFirst({
+      where: {
+        OR: [
+          { billId },
+          { invoiceNumber: billId }
+        ]
+      },
+      include: { patient: true }
+    });
+
+    if (!current) {
       throw { statusCode: 404, message: 'Bill not found' };
     }
 
-    const current = db.bills[index];
-    const patient = db.patients.find(p => p.patientId === current.patientId);
-    const newPaid = Number(paymentData.paid !== undefined ? paymentData.paid : current.paid);
+    let newPaid = Number(paymentData.paid !== undefined ? paymentData.paid : current.paid);
     const newBalance = Math.max(0, current.total - newPaid);
-    
+
     let status = current.paymentStatus;
     if (Number(current.discount) > 0 || newPaid >= current.total) {
       status = 'Paid';
@@ -291,196 +365,289 @@ class BillingService {
       status = 'Pending';
     }
 
-    db.bills[index] = {
-      ...current,
-      paid: newPaid,
-      balance: newBalance,
-      paymentMethod: paymentData.paymentMethod || current.paymentMethod,
-      paymentStatus: paymentData.paymentStatus || status,
-      updatedAt: new Date().toISOString()
-    };
-
-    // Audit log
-    db.logBillingAction({
-      action: 'EDITED',
-      billId: current.billId,
-      invoiceNumber: current.invoiceNumber,
-      patientId: current.patientId,
-      patientName: patient ? patient.name : 'Unknown Patient',
-      total: current.total,
-      details: `Payment updated for ${current.invoiceNumber}: Paid ₹${newPaid.toLocaleString()}, Balance ₹${newBalance.toLocaleString()}, Status: ${status}`,
-      user: currentUser
+    const updated = await prisma.bill.update({
+      where: { billId: current.billId },
+      data: {
+        paid: newPaid,
+        balance: newBalance,
+        paymentMethod: paymentData.paymentMethod || current.paymentMethod,
+        paymentStatus: paymentData.paymentStatus || status
+      }
     });
 
-    return this.populateBill(db.bills[index]);
+    await prisma.systemAuditLog.create({
+      data: {
+        action: 'BILL_EDITED',
+        resourceType: 'BILL',
+        resourceId: current.billId,
+        patientId: current.patientId,
+        userId: currentUser?.userId || currentUser?.id || null,
+        userName: currentUser?.name || currentUser?.username || 'Staff',
+        userRole: currentUser?.role || 'STAFF',
+        details: `Payment updated for ${current.invoiceNumber}: Paid ₹${newPaid.toLocaleString()}, Balance ₹${newBalance.toLocaleString()}, Status: ${status}`
+      }
+    }).catch(err => console.error('[BillingService] Failed to write audit log:', err.message));
+
+    return this.populateBill(updated);
   }
 
-  updateBill(billId, updateData, currentUser = null) {
-    const index = db.bills.findIndex(b => b.billId === billId || b.invoiceNumber === billId);
-    if (index === -1) {
+  /**
+   * Update full bill details
+   */
+  async updateBill(billId, updateData, currentUser = null) {
+    const current = await prisma.bill.findFirst({
+      where: {
+        OR: [
+          { billId },
+          { invoiceNumber: billId }
+        ]
+      },
+      include: { patient: true }
+    });
+
+    if (!current) {
       throw { statusCode: 404, message: 'Bill not found' };
     }
 
-    const current = db.bills[index];
-    const patient = db.patients.find(p => p.patientId === current.patientId);
-
-    // Update patient details if provided
     if (updateData.patientUpdates && typeof updateData.patientUpdates === 'object') {
       const patientService = require('./patientService');
       const { patientId: _pId, createdAt: _cAt, ...fieldsToUpdate } = updateData.patientUpdates;
-      patientService.updatePatient(current.patientId, fieldsToUpdate);
+      await patientService.updatePatient(current.patientId, fieldsToUpdate);
     }
 
     const doctorId = updateData.doctorId || current.doctorId;
-    const doctor = db.doctors.find(d => d.doctorId === doctorId);
+    const doctor = await prisma.doctor.findUnique({ where: { doctorId } });
 
-    const discountVal = updateData.discount !== undefined ? Number(updateData.discount) : (Number(current.discount) || 0);
+    const discountVal = updateData.discount !== undefined
+      ? Number(updateData.discount)
+      : (Number(current.discount) || 0);
     const isDiscountAdded = discountVal > 0;
 
-    const calculated = this.calculateBillAmounts({
+    const currentProcedures = typeof current.procedures === 'string'
+      ? safeParse(current.procedures, [])
+      : (current.procedures || []);
+
+    const calculated = await this.calculateBillAmounts({
       consultationType: updateData.consultationType !== undefined ? updateData.consultationType : current.consultationType,
       consultationFee: updateData.consultationFee !== undefined ? updateData.consultationFee : current.consultationFee,
       doctor,
-      procedures: updateData.procedures !== undefined ? updateData.procedures : current.procedures,
+      procedures: updateData.procedures !== undefined ? updateData.procedures : currentProcedures,
       discount: discountVal,
       tax: updateData.tax !== undefined ? updateData.tax : current.tax,
       paid: updateData.paid !== undefined ? updateData.paid : current.paid,
       paymentStatus: isDiscountAdded ? 'Paid' : (updateData.paymentStatus || current.paymentStatus)
     });
 
-    db.bills[index] = {
-      ...current,
-      ...updateData,
-      billId: current.billId,
-      invoiceNumber: current.invoiceNumber,
-      patientId: current.patientId,
-      doctorId,
-      consultationType: updateData.consultationType || current.consultationType,
-      consultationFee: calculated.consultationFee,
-      doctorCutConsultation: calculated.doctorCutConsultation,
-      clinicShareConsultation: calculated.clinicShareConsultation,
-      procedures: calculated.procedures,
-      subtotal: calculated.subtotal,
-      discount: calculated.discount,
-      tax: calculated.tax,
-      total: calculated.total,
-      paid: calculated.paid,
-      balance: calculated.balance,
-      paymentMethod: updateData.paymentMethod || current.paymentMethod,
-      paymentStatus: calculated.paymentStatus,
-      doctorCutTotal: calculated.doctorCutTotal,
-      clinicShareTotal: calculated.clinicShareTotal,
-      updatedBy: currentUser ? `${currentUser.name} (${currentUser.role})` : (current.updatedBy || 'Staff'),
-      updatedAt: new Date().toISOString()
-    };
-
-    db.logBillingAction({
-      action: 'EDITED',
-      billId: current.billId,
-      invoiceNumber: current.invoiceNumber,
-      patientId: current.patientId,
-      patientName: patient ? patient.name : 'Unknown Patient',
-      total: calculated.total,
-      details: `Bill ${current.invoiceNumber} details updated for ${patient ? patient.name : current.patientId}: Total ₹${calculated.total.toLocaleString()}, Paid ₹${calculated.paid.toLocaleString()}, Status: ${calculated.paymentStatus}`,
-      user: currentUser
+    const updated = await prisma.bill.update({
+      where: { billId: current.billId },
+      data: {
+        doctorId,
+        consultationType: updateData.consultationType || current.consultationType,
+        consultationFee: calculated.consultationFee,
+        doctorCutConsultation: calculated.doctorCutConsultation,
+        clinicShareConsultation: calculated.clinicShareConsultation,
+        procedures: safeStringify(calculated.procedures),
+        subtotal: calculated.subtotal,
+        discount: calculated.discount,
+        tax: calculated.tax,
+        total: calculated.total,
+        paid: calculated.paid,
+        balance: calculated.balance,
+        paymentMethod: updateData.paymentMethod || current.paymentMethod,
+        paymentStatus: calculated.paymentStatus,
+        doctorCutTotal: calculated.doctorCutTotal,
+        clinicShareTotal: calculated.clinicShareTotal
+      }
     });
 
-    return this.populateBill(db.bills[index]);
+    await prisma.systemAuditLog.create({
+      data: {
+        action: 'BILL_EDITED',
+        resourceType: 'BILL',
+        resourceId: current.billId,
+        patientId: current.patientId,
+        userId: currentUser?.userId || currentUser?.id || null,
+        userName: currentUser?.name || currentUser?.username || 'Staff',
+        userRole: currentUser?.role || 'STAFF',
+        details: `Bill ${current.invoiceNumber} updated: Total ₹${calculated.total.toLocaleString()}, Paid ₹${calculated.paid.toLocaleString()}, Status: ${calculated.paymentStatus}`
+      }
+    }).catch(err => console.error('[BillingService] Failed to write audit log:', err.message));
+
+    return this.populateBill(updated);
   }
 
-  deleteBill(billId, currentUser = null) {
-    const index = db.bills.findIndex(b => b.billId === billId || b.invoiceNumber === billId);
-    if (index === -1) {
+  /**
+   * Soft Delete / Cancel Invoice (preserves historical records and foreign key integrity)
+   */
+  async deleteBill(billId, currentUser = null) {
+    const current = await prisma.bill.findFirst({
+      where: {
+        OR: [
+          { billId },
+          { invoiceNumber: billId }
+        ]
+      },
+      include: { patient: true }
+    });
+
+    if (!current) {
       throw { statusCode: 404, message: 'Bill not found' };
     }
 
-    const bill = db.bills[index];
-    const patient = db.patients.find(p => p.patientId === bill.patientId);
-
-    // Remove bill from database
-    db.bills.splice(index, 1);
-
-    // Audit log
-    db.logBillingAction({
-      action: 'DELETED',
-      billId: bill.billId,
-      invoiceNumber: bill.invoiceNumber,
-      patientId: bill.patientId,
-      patientName: patient ? patient.name : 'Unknown Patient',
-      total: bill.total,
-      details: `Deleted invoice ${bill.invoiceNumber} (Total ₹${bill.total.toLocaleString()}) from system`,
-      user: currentUser
+    // Soft delete: set paymentStatus to 'Cancelled'
+    await prisma.bill.update({
+      where: { billId: current.billId },
+      data: {
+        paymentStatus: 'Cancelled'
+      }
     });
 
+    await prisma.systemAuditLog.create({
+      data: {
+        action: 'BILL_CANCELLED',
+        resourceType: 'BILL',
+        resourceId: current.billId,
+        patientId: current.patientId,
+        userId: currentUser?.userId || currentUser?.id || null,
+        userName: currentUser?.name || currentUser?.username || 'Admin',
+        userRole: currentUser?.role || 'ADMIN',
+        details: `Cancelled invoice ${current.invoiceNumber} (Total ₹${current.total.toLocaleString()})`
+      }
+    }).catch(err => console.error('[BillingService] Failed to write audit log:', err.message));
+
     return {
-      billId: bill.billId,
-      invoiceNumber: bill.invoiceNumber,
-      message: `Invoice ${bill.invoiceNumber} deleted successfully`
+      billId: current.billId,
+      invoiceNumber: current.invoiceNumber,
+      message: `Invoice ${current.invoiceNumber} cancelled successfully`
     };
   }
 
-  deletePatientTotalBills(patientId, currentUser = null) {
-    const patientBills = db.bills.filter(b => b.patientId === patientId);
+  /**
+   * Soft Cancel all bills for a patient
+   */
+  async deletePatientTotalBills(patientId, currentUser = null) {
+    const patientBills = await prisma.bill.findMany({
+      where: { patientId }
+    });
+
     if (patientBills.length === 0) {
       throw { statusCode: 404, message: `No bills found for patient ${patientId}` };
     }
 
-    const patient = db.patients.find(p => p.patientId === patientId);
+    const patient = await prisma.patient.findUnique({ where: { patientId } });
     const count = patientBills.length;
     const totalAmount = patientBills.reduce((acc, b) => acc + (b.total || 0), 0);
 
-    // Delete all bills for this patient
-    db.bills = db.bills.filter(b => b.patientId !== patientId);
-
-    // Audit log
-    db.logBillingAction({
-      action: 'PATIENT_BILLS_DELETED',
-      billId: null,
-      invoiceNumber: null,
-      patientId,
-      patientName: patient ? patient.name : 'Unknown Patient',
-      total: totalAmount,
-      details: `Admin deleted all ${count} bill(s) totaling ₹${totalAmount.toLocaleString()} from the system for patient ${patient ? patient.name : patientId}`,
-      user: currentUser
+    await prisma.bill.updateMany({
+      where: { patientId },
+      data: { paymentStatus: 'Cancelled' }
     });
+
+    await prisma.systemAuditLog.create({
+      data: {
+        action: 'BILL_PATIENT_BILLS_CANCELLED',
+        resourceType: 'BILL',
+        patientId,
+        userId: currentUser?.userId || currentUser?.id || null,
+        userName: currentUser?.name || currentUser?.username || 'Admin',
+        userRole: currentUser?.role || 'ADMIN',
+        details: `Admin cancelled all ${count} bill(s) totaling ₹${totalAmount.toLocaleString()} for patient ${patient ? patient.name : patientId}`
+      }
+    }).catch(err => console.error('[BillingService] Failed to write audit log:', err.message));
 
     return {
       patientId,
       deletedCount: count,
       totalAmount,
-      message: `Successfully deleted all ${count} bill(s) (₹${totalAmount.toLocaleString()}) for patient ${patient ? patient.name : patientId}`
+      message: `Successfully cancelled all ${count} bill(s) (₹${totalAmount.toLocaleString()}) for patient ${patient ? patient.name : patientId}`
     };
   }
 
-  getBillingLogs() {
-    return [...db.billingLogs];
+  /**
+   * Get billing audit logs directly from SQLite
+   */
+  async getBillingLogs() {
+    const logs = await prisma.systemAuditLog.findMany({
+      where: { resourceType: 'BILL' },
+      orderBy: { createdAt: 'desc' },
+      take: 200
+    });
+
+    return logs.map(l => ({
+      logId: l.id,
+      action: l.action.replace(/^BILL_/, ''),
+      billId: l.resourceId,
+      invoiceNumber: l.resourceId,
+      patientId: l.patientId,
+      details: l.details,
+      performedBy: `${l.userName} (${l.userRole})`,
+      timestamp: l.createdAt
+    }));
   }
 
-  populateBill(bill) {
-    const patient = db.patients.find(p => p.patientId === bill.patientId);
-    const doctor = db.doctors.find(d => d.doctorId === bill.doctorId);
-    const appointment = db.appointments.find(a => a.appointmentId === bill.appointmentId);
-    const consultation = db.consultations.find(c => c.appointmentId === bill.appointmentId || (c.patientId === bill.patientId && c.doctorId === bill.doctorId && c.createdAt?.startsWith(bill.createdAt?.split('T')[0])));
-    const prescription = consultation?.prescriptionId ? db.prescriptions.find(pr => pr.prescriptionId === consultation.prescriptionId) : null;
+  /**
+   * Populate bill record with patient, doctor, appointment, consultation, prescription, clinic, and link data
+   */
+  async populateBill(bill) {
+    if (!bill) return null;
 
-    // Resolve WhatsApp Message and Active Link
+    const patient = bill.patient || await prisma.patient.findUnique({ where: { patientId: bill.patientId } });
+    const doctor = bill.doctor || await prisma.doctor.findUnique({ where: { doctorId: bill.doctorId } });
+    const appointment = bill.appointment || (bill.appointmentId ? await prisma.appointment.findUnique({ where: { appointmentId: bill.appointmentId } }) : null);
+
+    let consultation = null;
+    if (bill.appointmentId) {
+      consultation = await prisma.consultation.findFirst({
+        where: { appointmentId: bill.appointmentId },
+        include: { prescription: true }
+      });
+    }
+    if (!consultation && bill.patientId && bill.doctorId) {
+      const dateStr = (bill.createdAt ? new Date(bill.createdAt) : new Date()).toISOString().split('T')[0];
+      consultation = await prisma.consultation.findFirst({
+        where: {
+          patientId: bill.patientId,
+          doctorId: bill.doctorId,
+          createdAt: {
+            gte: new Date(`${dateStr}T00:00:00.000Z`),
+            lte: new Date(`${dateStr}T23:59:59.999Z`)
+          }
+        },
+        include: { prescription: true }
+      });
+    }
+
+    const prescription = consultation?.prescription || null;
+
     const linkService = require('./linkService');
-    const links = linkService.getLinksForBill(bill.billId);
+    const links = await linkService.getLinksForBill(bill.billId);
     const now = new Date();
     const activeLink = links.find(l => l.status === 'Active' && new Date(l.expiresAt) > now) || null;
 
-    const whatsappMessages = db.whatsappMessages.filter(m => m.billId === bill.billId);
-    const latestWhatsApp = whatsappMessages.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
+    const whatsappMessages = await prisma.whatsAppMessage.findMany({
+      where: { billId: bill.billId },
+      orderBy: { createdAt: 'desc' }
+    });
+    const latestWhatsApp = whatsappMessages[0] || null;
+
+    const clinicProfile = await prisma.clinicProfile.findFirst();
+
+    const procedures = typeof bill.procedures === 'string'
+      ? safeParse(bill.procedures, [])
+      : (bill.procedures || []);
 
     return {
       ...bill,
+      procedures,
+      createdAt: bill.createdAt instanceof Date ? bill.createdAt.toISOString() : bill.createdAt,
+      updatedAt: bill.updatedAt instanceof Date ? bill.updatedAt.toISOString() : bill.updatedAt,
       patientName: patient ? patient.name : 'Unknown Patient',
       patientAge: patient ? patient.age : null,
       patientGender: patient ? patient.gender : null,
       patientPhone: patient ? patient.phone : null,
       patientWhatsappNumber: patient ? (patient.whatsappNumber || patient.phone) : null,
       patientWhatsappConsent: patient ? Boolean(patient.whatsappConsent) : true,
-      patientAddress: patient ? `${patient.address}, ${patient.city}` : '',
+      patientAddress: patient ? `${patient.address || ''}, ${patient.city || ''}` : '',
       patientDOB: patient ? patient.dateOfBirth : null,
       allergies: patient ? patient.allergies : 'None',
       medicalHistory: patient ? patient.medicalHistory : 'None',
@@ -492,46 +659,43 @@ class BillingService {
       appointmentTime: appointment ? appointment.time : null,
       consultation: consultation || null,
       prescription: prescription || null,
-      clinic: db.clinicProfile,
+      clinic: clinicProfile,
       activeLink,
       links,
       whatsappMessage: latestWhatsApp
     };
   }
 
-  // Combined Connected Flow helper for Front Desk
-  registerAndBill(data, currentUser) {
+  /**
+   * Combined Connected Flow helper for Front Desk
+   */
+  async registerAndBill(data, currentUser) {
     const { patient, appointment, bill } = data;
 
-    // 1. Identify existing patient by patientId OR by phone to prevent duplicates
     let patientRecord = null;
     if (patient.patientId) {
-      patientRecord = db.patients.find(p => p.patientId === patient.patientId);
+      patientRecord = await prisma.patient.findUnique({ where: { patientId: patient.patientId } });
     }
     if (!patientRecord && patient.phone) {
       const trimmedPhone = patient.phone.trim();
-      patientRecord = db.patients.find(p => p.phone && p.phone.trim() === trimmedPhone);
+      patientRecord = await prisma.patient.findFirst({ where: { phone: trimmedPhone } });
     }
 
     const patientService = require('./patientService');
     if (patientRecord) {
-      // Update existing patient record (never duplicate!)
       const { patientId: _pId, createdAt: _cAt, ...updateData } = patient;
-      patientRecord = patientService.updatePatient(patientRecord.patientId, updateData);
+      patientRecord = await patientService.updatePatient(patientRecord.patientId, updateData);
     } else {
-      // Create new patient
-      patientRecord = patientService.createPatient(patient);
+      patientRecord = await patientService.createPatient(patient);
     }
 
-    // 2. Create Appointment under the same patient ID
     const appointmentService = require('./appointmentService');
-    const appointmentRecord = appointmentService.createAppointment({
+    const appointmentRecord = await appointmentService.createAppointment({
       ...appointment,
       patientId: patientRecord.patientId
     }, currentUser);
 
-    // 3. Create Bill under the same patient ID
-    const billRecord = this.createBill({
+    const billRecord = await this.createBill({
       ...bill,
       patientId: patientRecord.patientId,
       doctorId: appointmentRecord.doctorId,

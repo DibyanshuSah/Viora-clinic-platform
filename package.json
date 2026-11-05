@@ -8,6 +8,11 @@
     "dev:frontend": "npm --prefix frontend run dev",
     "install:all": "npm install && npm --prefix backend install && npm --prefix frontend install",
     "start": "npm --prefix backend start",
+    "prisma:generate": "npm --prefix backend run prisma:generate",
+    "prisma:migrate": "npm --prefix backend run prisma:migrate",
+    "prisma:status": "npm --prefix backend run prisma:status",
+    "db:backup": "npm --prefix backend run db:backup",
+    "db:restore": "npm --prefix backend run db:restore",
     "seed": "npm --prefix backend run seed",
     "test": "npm --prefix backend run test"
   },
