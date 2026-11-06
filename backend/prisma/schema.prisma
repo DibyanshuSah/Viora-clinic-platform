@@ -241,6 +241,7 @@ model Bill {
   balance                 Float    @default(0)
   paymentMethod           String   @default("Cash") // Cash | UPI | Card | Other
   paymentStatus           String   @default("Paid") // Paid | Partially Paid | Pending
+  invoiceStatus           String   @default("Active") // Active | Cancelled | Void
   doctorCutTotal          Float    @default(0)
   clinicShareTotal        Float    @default(0)
   createdBy               String   @default("Front Desk Staff")
@@ -318,4 +319,12 @@ model SystemAuditLog {
   createdAt    DateTime  @default(now())
 
   @@map("system_audit_logs")
+}
+
+model IdSequence {
+  name       String   @id // Dedicated sequence counter e.g. PAT, DOC, STF, PROC, APT-2026, CNS, RX, BILL-2026, INV-2026
+  currentVal Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  @@map("id_sequences")
 }

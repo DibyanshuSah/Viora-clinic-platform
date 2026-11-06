@@ -244,7 +244,9 @@ class LinkService {
         paid: billData.paid,
         balance: billData.balance,
         paymentMethod: billData.paymentMethod,
-        paymentStatus: billData.paymentStatus
+        paymentStatus: billData.paymentStatus,
+        invoiceStatus: billData.invoiceStatus || 'Active',
+        status: billData.invoiceStatus || 'Active'
       },
       linkMetadata: {
         expiresAt: updatedLink.expiresAt,

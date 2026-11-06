@@ -1,19 +1,32 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const { PrismaClient } = require('@prisma/client');
+const { assertNotProduction, PROD_DB_PATH, TEST_DB_PATH } = require('../utils/testDatabaseGuard');
 
 // Compute absolute path to default SQLite database file
-const defaultDbPath = path.resolve(__dirname, '../../prisma/viora.db');
-let rawUrl = process.env.DATABASE_URL || 'file:./viora.db';
+const defaultDbPath = process.env.NODE_ENV === 'test' ? TEST_DB_PATH : PROD_DB_PATH;
+let rawUrl = process.env.DATABASE_URL;
+
+if (!rawUrl || rawUrl.trim() === '') {
+  rawUrl = process.env.NODE_ENV === 'test' ? 'file:./test_viora.db' : 'file:./viora.db';
+}
+
 let databaseUrl = rawUrl;
 
 // Ensure relative SQLite URLs are always resolved relative to backend/prisma
-if (!rawUrl || rawUrl.trim() === '' || rawUrl === 'file:./viora.db') {
-  databaseUrl = `file:${defaultDbPath.replace(/\\/g, '/')}`;
+if (rawUrl === 'file:./viora.db' || rawUrl === 'file:./test_viora.db') {
+  const targetPath = rawUrl.includes('test_viora.db') ? TEST_DB_PATH : PROD_DB_PATH;
+  databaseUrl = `file:${targetPath.replace(/\\/g, '/')}`;
 } else if (rawUrl.startsWith('file:') && !rawUrl.startsWith('file:/') && !rawUrl.match(/^file:[a-zA-Z]:/)) {
   const relativePart = rawUrl.replace(/^file:/, '');
   const resolved = path.resolve(__dirname, '../../prisma', relativePart);
   databaseUrl = `file:${resolved.replace(/\\/g, '/')}`;
+}
+
+// Safety Guard: In test environment, explicitly forbid connecting to production database
+if (process.env.NODE_ENV === 'test') {
+  const resolvedPath = databaseUrl.replace(/^file:/, '');
+  assertNotProduction(resolvedPath);
 }
 
 const prisma = new PrismaClient({

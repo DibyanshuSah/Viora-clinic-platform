@@ -580,7 +580,14 @@ const StaffBillingPage = () => {
     },
     {
       header: 'Status',
-      render: (row) => <StatusBadge status={row.paymentStatus} />
+      render: (row) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+          {row.invoiceStatus && row.invoiceStatus !== 'Active' && (
+            <StatusBadge status={row.invoiceStatus} />
+          )}
+          <StatusBadge status={row.paymentStatus} />
+        </div>
+      )
     },
     {
       header: 'WhatsApp & Link Access',

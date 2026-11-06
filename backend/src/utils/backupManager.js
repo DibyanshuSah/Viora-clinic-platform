@@ -2,13 +2,27 @@ const fs = require('fs');
 const path = require('path');
 const prisma = require('../config/prisma');
 const { PrismaClient } = require('@prisma/client');
+const { resolveDbPath, assertNotProduction, PROD_DB_PATH } = require('./testDatabaseGuard');
 
 class BackupManager {
-  constructor() {
-    this.backupDir = path.resolve(__dirname, '../../prisma/backups');
-    this.dbPath = path.resolve(__dirname, '../../prisma/viora.db');
+  constructor(customDbPath, customBackupDir) {
+    this.customDbPath = customDbPath;
+    this.customBackupDir = customBackupDir;
     this.maxBackups = 10;
     this.ensureBackupDir();
+  }
+
+  get dbPath() {
+    if (this.customDbPath) return path.resolve(this.customDbPath);
+    return resolveDbPath();
+  }
+
+  get backupDir() {
+    if (this.customBackupDir) return path.resolve(this.customBackupDir);
+    if (process.env.NODE_ENV === 'test') {
+      return path.resolve(__dirname, '../../prisma/test_backups');
+    }
+    return path.resolve(__dirname, '../../prisma/backups');
   }
 
   ensureBackupDir() {
@@ -32,8 +46,9 @@ class BackupManager {
   /**
    * Create an online, WAL-consistent SQLite backup using VACUUM INTO
    * @param {string} [label] - Optional tag (e.g., 'manual', 'pre_deploy')
+   * @param {PrismaClient} [prismaClient] - Optional prisma client instance
    */
-  async createBackup(label = 'manual') {
+  async createBackup(label = 'manual', prismaClient = null) {
     this.ensureBackupDir();
     const timestamp = this.formatTimestamp();
     const filename = `viora_backup_${timestamp}_${label}.db`;
@@ -41,10 +56,11 @@ class BackupManager {
 
     // Normalize forward slashes for SQLite command
     const sqlitePath = targetPath.replace(/\\/g, '/');
+    const client = prismaClient || prisma;
 
     try {
       console.log(`[BackupManager] Starting atomic backup to ${filename}...`);
-      await prisma.$executeRawUnsafe(`VACUUM INTO '${sqlitePath}';`);
+      await client.$executeRawUnsafe(`VACUUM INTO '${sqlitePath}';`);
 
       // Verify backup integrity
       const isValid = await this.verifyBackup(targetPath);
@@ -154,45 +170,71 @@ class BackupManager {
 
   /**
    * Restore database from backup file
+   * @param {string} backupFilenameOrPath
+   * @param {object} [options]
+   * @param {string} [options.targetDbPath] - Explicit target path
+   * @param {PrismaClient} [options.prismaClient] - Existing prisma client to disconnect
    */
-  async restoreBackup(backupFilenameOrPath) {
-    let resolvedPath = backupFilenameOrPath;
-    if (!path.isAbsolute(resolvedPath)) {
-      resolvedPath = path.join(this.backupDir, backupFilenameOrPath);
+  async restoreBackup(backupFilenameOrPath, options = {}) {
+    let resolvedBackup = backupFilenameOrPath;
+    if (!path.isAbsolute(resolvedBackup)) {
+      resolvedBackup = path.join(this.backupDir, backupFilenameOrPath);
     }
 
-    if (!fs.existsSync(resolvedPath)) {
-      throw new Error(`Backup file does not exist: ${resolvedPath}`);
+    if (!fs.existsSync(resolvedBackup)) {
+      throw new Error(`Backup file does not exist: ${resolvedBackup}`);
+    }
+
+    const destinationDb = options.targetDbPath ? path.resolve(options.targetDbPath) : this.dbPath;
+
+    // Critical Safety Check: Never restore against production if in test environment
+    if (process.env.NODE_ENV === 'test') {
+      assertNotProduction(destinationDb);
     }
 
     // Verify backup integrity prior to restore
-    const isOk = await this.verifyBackup(resolvedPath);
+    const isOk = await this.verifyBackup(resolvedBackup);
     if (!isOk) {
       throw new Error('Integrity check failed: Selected backup is corrupted or invalid.');
     }
 
+    const client = options.prismaClient || prisma;
     console.log(`[BackupManager] Safety checkpoint: creating pre-restore backup...`);
-    // Pre-restore safety backup
     const preRestoreBackup = path.join(this.backupDir, `viora_prerestore_${Date.now()}.db`);
     try {
-      await prisma.$executeRawUnsafe(`VACUUM INTO '${preRestoreBackup.replace(/\\/g, '/')}';`);
+      await client.$executeRawUnsafe(`VACUUM INTO '${preRestoreBackup.replace(/\\/g, '/')}';`);
+    } catch (err) {
+      // If client cannot vacuum (e.g. fresh empty target), create file copy if target exists
+      if (fs.existsSync(destinationDb)) {
+        try { fs.copyFileSync(destinationDb, preRestoreBackup); } catch {}
+      }
+    }
+
+    // Disconnect active prisma clients
+    try {
+      await client.$disconnect();
     } catch {}
 
-    // Disconnect prisma
-    await prisma.$disconnect();
-
-    // Copy backup over destination
-    fs.copyFileSync(resolvedPath, this.dbPath);
-
-    // Remove stale WAL/shm files if present
-    const walPath = `${this.dbPath}-wal`;
-    const shmPath = `${this.dbPath}-shm`;
+    // Remove existing destination WAL and SHM files before copy
+    const walPath = `${destinationDb}-wal`;
+    const shmPath = `${destinationDb}-shm`;
     if (fs.existsSync(walPath)) try { fs.unlinkSync(walPath); } catch {}
     if (fs.existsSync(shmPath)) try { fs.unlinkSync(shmPath); } catch {}
 
-    console.log(`[BackupManager] Database restored successfully from ${path.basename(resolvedPath)}`);
-    return { success: true, restoredFrom: path.basename(resolvedPath) };
+    // Copy backup over destination
+    fs.copyFileSync(resolvedBackup, destinationDb);
+
+    // Verify restored database integrity
+    const restoredOk = await this.verifyBackup(destinationDb);
+    if (!restoredOk) {
+      throw new Error('Integrity check failed on restored database file');
+    }
+
+    console.log(`[BackupManager] Database restored and verified successfully from ${path.basename(resolvedBackup)}`);
+    return { success: true, restoredFrom: path.basename(resolvedBackup), targetPath: destinationDb };
   }
 }
 
-module.exports = new BackupManager();
+const defaultManager = new BackupManager();
+defaultManager.BackupManager = BackupManager;
+module.exports = defaultManager;

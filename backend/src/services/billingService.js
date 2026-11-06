@@ -8,13 +8,16 @@ class BillingService {
    * Retrieve all bills with optional filtering
    */
   async getAllBills(filters = {}) {
-    const { patientId, doctorId, paymentStatus, date } = filters;
+    const { patientId, doctorId, paymentStatus, invoiceStatus, date } = filters;
     const where = {};
 
     if (patientId) where.patientId = patientId;
     if (doctorId) where.doctorId = doctorId;
     if (paymentStatus) {
       where.paymentStatus = { equals: paymentStatus };
+    }
+    if (invoiceStatus) {
+      where.invoiceStatus = { equals: invoiceStatus };
     }
     if (date) {
       where.createdAt = {
@@ -264,7 +267,7 @@ class BillingService {
     const existingBill = await prisma.bill.findFirst({
       where: {
         patientId,
-        paymentStatus: { not: 'Cancelled' }
+        invoiceStatus: { not: 'Cancelled' }
       }
     });
     if (existingBill) {
@@ -455,6 +458,7 @@ class BillingService {
         balance: calculated.balance,
         paymentMethod: updateData.paymentMethod || current.paymentMethod,
         paymentStatus: calculated.paymentStatus,
+        invoiceStatus: updateData.invoiceStatus || updateData.status || current.invoiceStatus || 'Active',
         doctorCutTotal: calculated.doctorCutTotal,
         clinicShareTotal: calculated.clinicShareTotal
       }
@@ -494,11 +498,11 @@ class BillingService {
       throw { statusCode: 404, message: 'Bill not found' };
     }
 
-    // Soft delete: set paymentStatus to 'Cancelled'
+    // Soft delete: update invoice lifecycle status to 'Cancelled' (preserves paymentStatus and financial values)
     await prisma.bill.update({
       where: { billId: current.billId },
       data: {
-        paymentStatus: 'Cancelled'
+        invoiceStatus: 'Cancelled'
       }
     });
 
@@ -540,7 +544,7 @@ class BillingService {
 
     await prisma.bill.updateMany({
       where: { patientId },
-      data: { paymentStatus: 'Cancelled' }
+      data: { invoiceStatus: 'Cancelled' }
     });
 
     await prisma.systemAuditLog.create({
@@ -638,6 +642,8 @@ class BillingService {
 
     return {
       ...bill,
+      invoiceStatus: bill.invoiceStatus || 'Active',
+      status: bill.invoiceStatus || 'Active',
       procedures,
       createdAt: bill.createdAt instanceof Date ? bill.createdAt.toISOString() : bill.createdAt,
       updatedAt: bill.updatedAt instanceof Date ? bill.updatedAt.toISOString() : bill.updatedAt,

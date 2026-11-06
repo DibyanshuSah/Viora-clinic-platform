@@ -14,7 +14,8 @@
     "db:backup": "npm --prefix backend run db:backup",
     "db:restore": "npm --prefix backend run db:restore",
     "seed": "npm --prefix backend run seed",
-    "test": "npm --prefix backend run test"
+    "test": "npm --prefix backend run test",
+    "test:all": "npm --prefix backend run test:all"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

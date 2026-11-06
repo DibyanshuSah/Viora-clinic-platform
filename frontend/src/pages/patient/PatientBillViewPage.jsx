@@ -401,6 +401,9 @@ const PatientBillViewPage = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
                 <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{invoice.paymentMethod || 'UPI'}</span>
                 <StatusBadge status={invoice.paymentStatus} />
+                {invoice.invoiceStatus && invoice.invoiceStatus !== 'Active' && (
+                  <StatusBadge status={invoice.invoiceStatus} />
+                )}
               </div>
               <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '6px' }}>
                 Received with thanks. Authorized computer generated receipt.

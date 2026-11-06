@@ -176,12 +176,16 @@ class ConsultationService {
     }
 
     let rxId = existing ? existing.prescriptionId : null;
+    const hasPrescriptionData = Boolean((medicines && medicines.length > 0) || advice || diagnosis);
+    if (!rxId && hasPrescriptionData) {
+      rxId = await idGenerator.nextPrescriptionId();
+    }
 
     // Execute atomic transaction for Prescription and Consultation
     return await prisma.$transaction(async (tx) => {
       // 1. Manage Prescription if details are provided
-      if ((medicines && medicines.length > 0) || advice || diagnosis) {
-        if (rxId) {
+      if (hasPrescriptionData && rxId) {
+        if (existing && existing.prescriptionId) {
           await tx.prescription.update({
             where: { prescriptionId: rxId },
             data: {
@@ -193,7 +197,6 @@ class ConsultationService {
             }
           });
         } else {
-          rxId = await idGenerator.nextPrescriptionId();
           await tx.prescription.create({
             data: {
               prescriptionId: rxId,
