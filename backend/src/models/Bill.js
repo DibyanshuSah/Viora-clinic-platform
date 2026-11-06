@@ -21,6 +21,7 @@ class Bill {
     balance = 0,
     paymentMethod = 'Cash',
     paymentStatus = 'Paid',
+    invoiceStatus = 'Active',
     doctorCutTotal = 0,
     clinicShareTotal = 0,
     createdBy = 'Front Desk Staff',
@@ -45,6 +46,7 @@ class Bill {
     this.balance = Number(balance);
     this.paymentMethod = paymentMethod;
     this.paymentStatus = paymentStatus;
+    this.invoiceStatus = invoiceStatus;
     this.doctorCutTotal = Number(doctorCutTotal);
     this.clinicShareTotal = Number(clinicShareTotal);
     this.createdBy = createdBy;

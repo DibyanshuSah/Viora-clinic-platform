@@ -1,7 +1,19 @@
+// Ensure test environment and isolated test database are configured before any imports
+process.env.NODE_ENV = 'test';
+process.env.DATABASE_URL = 'file:./test_viora.db';
+
+const path = require('path');
+const { assertNotProduction, setupTestDatabase, cleanTestDatabase, TEST_DB_PATH, PROD_DB_PATH } = require('./src/utils/testDatabaseGuard');
+
+// Enforce Safety Guard
+assertNotProduction(process.env.DATABASE_URL);
+setupTestDatabase({ dbPath: TEST_DB_PATH });
+
 const assert = require('assert');
 const app = require('./src/app');
 const prisma = require('./src/config/prisma');
 const http = require('http');
+const { PrismaClient } = require('@prisma/client');
 
 let server;
 let port = 5055;
@@ -48,7 +60,10 @@ function request(method, path, body = null, headers = {}) {
 async function runSystemVerification() {
   console.log('================================================================');
   console.log('  VIORA CMS: WHATSAPP INTEGRATION & SECURE ACCESS VERIFICATION  ');
+  console.log('  [ISOLATED TEST DATABASE MODE]                                 ');
   console.log('================================================================\n');
+
+  console.log(`[Safety Guard] Target DB verified non-production: ${TEST_DB_PATH}`);
 
   // Start HTTP server on test port
   await new Promise((resolve) => {
@@ -120,9 +135,10 @@ async function runSystemVerification() {
     // Verify 1: Appointment status completed
     assert.strictEqual(endData.appointment.status, 'Completed', 'Appointment status must be Completed');
 
-    // Verify 2: Bill finalized
+    // Verify 2: Bill finalized & invoice lifecycle separated from payment status
     assert(endData.bill, 'Bill must be finalized');
     assert(endData.bill.invoiceNumber, 'Invoice number must be generated');
+    assert.strictEqual(endData.bill.invoiceStatus, 'Active', 'Invoice status must be Active');
 
     // Verify 3: Cryptographically secure UUID link generated
     assert(endData.link, 'UUID Bill Access Link must be generated');
@@ -138,6 +154,8 @@ async function runSystemVerification() {
     assert(endData.whatsappMessage.messageBody.includes('Thank you for visiting') && endData.whatsappMessage.messageBody.includes('VIORA Healthcare'), 'Mandated thank-you greeting must match');
     console.log(`✓ Visit completed:`);
     console.log(`   - Invoice Number: ${endData.bill.invoiceNumber}`);
+    console.log(`   - Invoice Status: ${endData.bill.invoiceStatus}`);
+    console.log(`   - Payment Status: ${endData.bill.paymentStatus}`);
     console.log(`   - Secure UUID Link: ${endData.link.url}`);
     console.log(`   - WhatsApp Message Status: ${endData.whatsappMessage.status}`);
     console.log(`   - Expiry Date: ${endData.link.expiresAt}\n`);
@@ -164,8 +182,9 @@ async function runSystemVerification() {
     }, { Authorization: `Bearer ${staffToken}` });
     assert.strictEqual(editBillRes.status, 200, 'Bill edit request failed');
     assert.strictEqual(editBillRes.body.data.paymentStatus, 'Paid', 'Discounted bill must show "Paid", not "Partially Paid"');
+    assert.strictEqual(editBillRes.body.data.invoiceStatus, 'Active', 'Invoice status must remain Active');
     assert.strictEqual(editBillRes.body.data.balance, 0, 'Discounted bill balance must be 0');
-    console.log(`✓ Bill edited with discount: status is "${editBillRes.body.data.paymentStatus}", balance is ₹${editBillRes.body.data.balance}.\n`);
+    console.log(`✓ Bill edited with discount: paymentStatus is "${editBillRes.body.data.paymentStatus}", invoiceStatus is "${editBillRes.body.data.invoiceStatus}", balance is ₹${editBillRes.body.data.balance}.\n`);
 
     // 6. Patient Views Bill using UUID Link (Public Route - No Password Required)
     console.log('[STEP 6] Patient accessing bill via UUID link (/api/v1/public/bills/:token)...');
@@ -251,22 +270,51 @@ async function runSystemVerification() {
     assert.strictEqual(updateSettingsRes.body.data.whatsappDefaultExpiryDays, 14, 'Default expiry days updated to 14');
     console.log('✓ Admin WhatsApp Settings updated successfully.\n');
 
+    // 12. Task 4 Separation Verification: Cancelling Bill Updates invoiceStatus WITHOUT overwriting paymentStatus
+    console.log('[STEP 12] Testing Invoice Cancellation & Payment Status Preservation...');
+    const cancelRes = await request('DELETE', `/billing/${endData.bill.billId}`, null, { Authorization: `Bearer ${adminToken}` });
+    assert.strictEqual(cancelRes.status, 200, 'Bill cancellation request failed');
+    const cancelledBillCheck = await prisma.bill.findUnique({ where: { billId: endData.bill.billId } });
+    assert.strictEqual(cancelledBillCheck.invoiceStatus, 'Cancelled', 'invoiceStatus must be set to Cancelled');
+    assert.strictEqual(cancelledBillCheck.paymentStatus, 'Paid', 'CRITICAL: paymentStatus must remain Paid (not overwritten to Cancelled)!');
+    console.log(`✓ Invoice cancelled cleanly: invoiceStatus="${cancelledBillCheck.invoiceStatus}", paymentStatus="${cancelledBillCheck.paymentStatus}" preserved.\n`);
+
     console.log('================================================================');
-    console.log('  🎯 ALL 11 END-TO-END ACCEPTANCE CRITERIA PASSED SUCCESSFULLY!  ');
+    console.log('  🎯 ALL 12 END-TO-END ACCEPTANCE CRITERIA PASSED SUCCESSFULLY! ');
     console.log('================================================================\n');
 
   } catch (err) {
     console.error('❌ Verification failed:', err);
     process.exitCode = 1;
   } finally {
+    // Gracefully shut down HTTP server
     if (server) {
-      server.close(() => {
-        process.exit(process.exitCode || 0);
-      });
-      setTimeout(() => process.exit(process.exitCode || 0), 1000);
-    } else {
-      process.exit(process.exitCode || 0);
+      await new Promise(r => server.close(r));
     }
+
+    // Disconnect Prisma from test DB
+    await prisma.$disconnect();
+
+    // Verify production database was completely untouched
+    console.log('[Safety Verification] Confirming production database was untouched...');
+    const prodClient = new PrismaClient({
+      datasources: { db: { url: `file:${PROD_DB_PATH.replace(/\\/g, '/')}` } }
+    });
+    try {
+      const prodPatients = await prodClient.patient.count();
+      const prodBills = await prodClient.bill.count();
+      assert.strictEqual(prodPatients, 0, 'Production database must contain ZERO test patients');
+      assert.strictEqual(prodBills, 0, 'Production database must contain ZERO test bills');
+      console.log('✓ Production database verified: 0 test patients, 0 test bills. Completely clean!');
+    } finally {
+      await prodClient.$disconnect();
+    }
+
+    // Clean up test database files
+    cleanTestDatabase(TEST_DB_PATH);
+    console.log('✓ Test database cleaned up successfully.\n');
+
+    process.exit(process.exitCode || 0);
   }
 }
 

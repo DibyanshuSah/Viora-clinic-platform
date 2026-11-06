@@ -32,13 +32,14 @@ class AnalyticsService {
       filterEnd = new Date(todayStr + 'T23:59:59.999Z');
     }
 
-    // Filter bills within selected period (excluding cancelled bills from revenue totals)
+    // Filter bills within selected period (excluding cancelled invoices from revenue totals)
     const filteredBillsRaw = await prisma.bill.findMany({
       where: {
         createdAt: {
           gte: filterStart,
           lte: filterEnd
         },
+        invoiceStatus: { not: 'Cancelled' },
         paymentStatus: { not: 'Cancelled' }
       }
     });
@@ -61,6 +62,7 @@ class AnalyticsService {
     const todayBills = await prisma.bill.findMany({
       where: {
         createdAt: { gte: todayStart, lte: todayEnd },
+        invoiceStatus: { not: 'Cancelled' },
         paymentStatus: { not: 'Cancelled' }
       }
     });
@@ -156,6 +158,7 @@ class AnalyticsService {
       const dayBills = await prisma.bill.findMany({
         where: {
           createdAt: { gte: dStart, lte: dEnd },
+          invoiceStatus: { not: 'Cancelled' },
           paymentStatus: { not: 'Cancelled' }
         }
       });

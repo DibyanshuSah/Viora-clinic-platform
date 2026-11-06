@@ -296,6 +296,11 @@ const InvoicePreview = ({ invoice, onClose, onPrint }) => {
                 {invoice.paymentStatus}
               </span>
             </div>
+            {invoice.invoiceStatus && invoice.invoiceStatus !== 'Active' && (
+              <div style={{ fontSize: '0.8rem', color: '#DC2626', marginTop: '4px' }}>
+                Invoice Status: <strong style={{ textTransform: 'uppercase', color: '#DC2626' }}>{invoice.invoiceStatus}</strong>
+              </div>
+            )}
             <div style={{ marginTop: '16px', fontSize: '0.75rem', color: '#94A3B8', fontStyle: 'italic' }}>
               This is a computer-generated tax invoice issued by VIORA Clinic Management System. No physical signature required.
             </div>

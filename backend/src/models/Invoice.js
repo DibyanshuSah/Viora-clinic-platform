@@ -16,6 +16,7 @@ class Invoice {
     balance = 0,
     paymentMethod = 'Cash',
     paymentStatus = 'Paid',
+    invoiceStatus = 'Active',
     clinicDetails,
     issuedAt = new Date().toISOString()
   }) {
@@ -32,6 +33,7 @@ class Invoice {
     this.balance = Number(balance);
     this.paymentMethod = paymentMethod;
     this.paymentStatus = paymentStatus;
+    this.invoiceStatus = invoiceStatus;
     this.clinicDetails = clinicDetails;
     this.issuedAt = issuedAt;
   }

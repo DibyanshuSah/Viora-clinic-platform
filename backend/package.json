@@ -15,7 +15,12 @@
     "db:verify": "node src/utils/backupCli.js verify",
     "db:list": "node src/utils/backupCli.js list",
     "seed": "node prisma/seed.js",
-    "test": "node test_complete_system.js"
+    "test": "node test_complete_system.js",
+    "test:concurrency": "node test_concurrency_ids.js",
+    "test:invoice": "node test_invoice_lifecycle.js",
+    "test:persistence": "node test_persistence_restart.js",
+    "test:backup": "node test_backup_restore.js",
+    "test:all": "node test_complete_system.js && node test_concurrency_ids.js && node test_invoice_lifecycle.js && node test_persistence_restart.js && node test_backup_restore.js"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
