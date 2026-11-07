@@ -4,7 +4,11 @@ const { successResponse } = require('../utils/responseHandler');
 class StaffController {
   async getAllStaff(req, res, next) {
     try {
-      const staffList = await staffService.getAllStaff();
+      // Only ADMIN users are allowed to request inactive staff.
+      // All other roles always receive the active-only list.
+      const isAdmin = req.user?.role === 'ADMIN';
+      const includeInactive = isAdmin && req.query.includeInactive === 'true';
+      const staffList = await staffService.getAllStaff({ includeInactive });
       return successResponse(res, 'Staff members retrieved successfully', staffList);
     } catch (err) {
       next(err);

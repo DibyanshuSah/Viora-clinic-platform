@@ -1,22 +1,25 @@
 import React from 'react';
 
-const StatCard = ({ label, value, subtext, icon: Icon, role = 'admin', trend }) => {
+const StatCard = ({ label, value, subtext, icon: Icon, role = 'admin' }) => {
   const getColors = () => {
     if (role === 'admin') {
       return {
         iconBg: 'var(--role-admin-bg)',
-        iconColor: 'var(--role-admin-primary)'
+        iconColor: 'var(--role-admin-primary)',
+        borderColor: 'var(--role-admin-border)'
       };
     }
     if (role === 'doctor') {
       return {
         iconBg: 'var(--role-doctor-bg)',
-        iconColor: 'var(--role-doctor-primary)'
+        iconColor: 'var(--role-doctor-primary)',
+        borderColor: 'var(--role-doctor-border)'
       };
     }
     return {
       iconBg: 'var(--role-staff-bg)',
-      iconColor: 'var(--role-staff-primary)'
+      iconColor: 'var(--role-staff-primary)',
+      borderColor: 'var(--role-staff-border)'
     };
   };
 
@@ -31,7 +34,7 @@ const StatCard = ({ label, value, subtext, icon: Icon, role = 'admin', trend }) 
       </div>
       {Icon && (
         <div className="stat-card-icon-wrap" style={{ backgroundColor: iconBg }}>
-          <Icon size={24} color={iconColor} />
+          <Icon size={22} color={iconColor} />
         </div>
       )}
     </div>

@@ -17,6 +17,9 @@ router.post('/', authenticate, authorize('STAFF', 'ADMIN'), (req, res, next) => 
 router.post('/connected-register-bill', authenticate, authorize('STAFF', 'ADMIN'), (req, res, next) => billingController.connectedRegisterAndBill(req, res, next));
 router.patch('/:id/payment', authenticate, authorize('STAFF', 'ADMIN'), (req, res, next) => billingController.updatePayment(req, res, next));
 router.put('/:id', authenticate, authorize('STAFF', 'ADMIN'), (req, res, next) => billingController.updateBill(req, res, next));
+// Permanent deletion of voided/cancelled invoices (ADMIN ONLY)
+router.delete('/:id/permanent', authenticate, authorize('ADMIN'), (req, res, next) => billingController.permanentlyDeleteBill(req, res, next));
+// Soft cancellation of invoices
 router.delete('/:id', authenticate, authorize('ADMIN'), (req, res, next) => billingController.deleteBill(req, res, next));
 
 module.exports = router;

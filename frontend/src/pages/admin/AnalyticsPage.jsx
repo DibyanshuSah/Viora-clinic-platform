@@ -163,7 +163,7 @@ const AnalyticsPage = () => {
       </div>
 
       {/* CHARTS ROW */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 'var(--spacing-lg)' }}>
+      <div className="grid-two-column-split">
         {/* REVENUE TIMELINE */}
         <div className="v-card">
           <div className="v-card-header">

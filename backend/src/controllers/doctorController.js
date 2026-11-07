@@ -4,7 +4,11 @@ const { successResponse } = require('../utils/responseHandler');
 class DoctorController {
   async getAllDoctors(req, res, next) {
     try {
-      const doctors = await doctorService.getAllDoctors();
+      // Only ADMIN users are allowed to request inactive doctors.
+      // All other roles always receive the active-only list.
+      const isAdmin = req.user?.role === 'ADMIN';
+      const includeInactive = isAdmin && req.query.includeInactive === 'true';
+      const doctors = await doctorService.getAllDoctors({ includeInactive });
       return successResponse(res, 'Doctors retrieved successfully', doctors);
     } catch (err) {
       next(err);

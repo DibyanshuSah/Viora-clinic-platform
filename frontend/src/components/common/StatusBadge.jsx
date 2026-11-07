@@ -3,12 +3,12 @@ import React from 'react';
 const StatusBadge = ({ status }) => {
   if (!status) return null;
 
-  const normalized = String(status).toLowerCase();
+  const normalized = String(status).toLowerCase().trim();
 
   let badgeClass = 'badge-info';
   let dotColor = 'var(--status-active-text)';
 
-  if (['available', 'active', 'completed', 'paid', 'present'].includes(normalized)) {
+  if (['available', 'active', 'completed', 'paid', 'present', 'delivered', 'sent'].includes(normalized)) {
     badgeClass = 'badge-available';
     dotColor = 'var(--status-available-text)';
   } else if (['paused', 'waiting', 'partially paid'].includes(normalized)) {
@@ -17,7 +17,7 @@ const StatusBadge = ({ status }) => {
   } else if (['in consultation', 'in consultant'].includes(normalized)) {
     badgeClass = 'badge-in-consultation';
     dotColor = 'var(--status-active-text)';
-  } else if (['danger', 'cancelled', 'inactive', 'pending', 'absent'].includes(normalized)) {
+  } else if (['danger', 'cancelled', 'inactive', 'pending', 'absent', 'failed'].includes(normalized)) {
     badgeClass = 'badge-danger';
     dotColor = 'var(--status-danger-text)';
   }
@@ -29,7 +29,8 @@ const StatusBadge = ({ status }) => {
           width: '6px',
           height: '6px',
           borderRadius: '50%',
-          backgroundColor: dotColor
+          backgroundColor: dotColor,
+          flexShrink: 0
         }}
       />
       {status}

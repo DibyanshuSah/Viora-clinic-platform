@@ -1,13 +1,45 @@
 /* RESPONSIVE DESIGN STYLES */
 
-/* Large Desktop (> 1200px) */
-@media (min-width: 1201px) {
-  .sidebar-mobile-toggle {
-    display: none;
+/* =====================================================
+   SIDEBAR DESKTOP COLLAPSE SUPPORT
+   The hamburger button is now ALWAYS visible so users
+   can collapse/expand the sidebar on any screen size.
+   ===================================================== */
+
+/* Always show the sidebar toggle button */
+.sidebar-mobile-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar-mobile-toggle:hover {
+  background-color: var(--bg-app) !important;
+  border-color: var(--border-focus) !important;
+}
+
+/* Desktop sidebar collapse: when .sidebar-collapsed is on .app-container */
+@media (min-width: 769px) {
+  .app-sidebar > div {
+    min-width: var(--sidebar-width);
+  }
+
+  .app-container.sidebar-collapsed .app-sidebar {
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+    overflow: hidden;
+    border-right-color: transparent;
+  }
+
+  .app-container.sidebar-collapsed .main-content {
+    /* main-content flex:1 already fills the space */
   }
 }
 
-/* Tablet (768px - 1200px) */
+/* Tablet & Compact Laptop (768px - 1200px) */
 @media (max-width: 1200px) {
   :root {
     --sidebar-width: 220px;
@@ -17,12 +49,32 @@
     padding: var(--spacing-md);
   }
 
+  .grid-two-column-split {
+    grid-template-columns: 1fr;
+  }
+
+  .grid-three-column {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .grid-four-column {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .form-grid-4 {
     grid-template-columns: repeat(2, 1fr);
   }
-  
+
   .form-grid-3 {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .consultation-workspace-layout {
+    grid-template-columns: 280px 1fr !important;
+  }
+
+  .consultation-workspace-layout > :last-child {
+    grid-column: 1 / -1;
   }
 }
 
@@ -30,6 +82,7 @@
 @media (max-width: 768px) {
   :root {
     --header-height: 56px;
+    --sidebar-width: 260px;
   }
 
   .app-container {
@@ -53,7 +106,6 @@
     width: 280px;
     z-index: 1500;
     transform: translateX(-100%);
-    transition: transform var(--transition-normal);
     box-shadow: var(--shadow-xl);
   }
 
@@ -64,8 +116,8 @@
   .sidebar-backdrop {
     position: fixed;
     inset: 0;
-    background-color: rgba(15, 23, 42, 0.5);
-    backdrop-filter: blur(2px);
+    background-color: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(3px);
     z-index: 1400;
   }
 
@@ -73,7 +125,14 @@
     padding: var(--spacing-sm);
   }
 
-  .form-grid-4, .form-grid-3, .form-grid-2 {
+  /* Layout grids collapse to 1 column on mobile */
+  .grid-two-column,
+  .grid-two-column-split,
+  .grid-three-column,
+  .grid-four-column,
+  .form-grid-4,
+  .form-grid-3,
+  .form-grid-2 {
     grid-template-columns: 1fr;
   }
 
@@ -91,19 +150,67 @@
     gap: var(--spacing-sm);
   }
 
+  .modal-overlay {
+    padding: var(--spacing-xs);
+  }
+
   .modal-content {
-    max-width: 100%;
-    margin: var(--spacing-sm);
+    max-width: 100% !important;
+    margin: var(--spacing-xs);
+    max-height: 94vh;
+  }
+
+  .modal-header,
+  .modal-footer {
+    padding: 12px var(--spacing-md);
+  }
+
+  .modal-body {
+    padding: var(--spacing-md);
   }
 
   .toast-container {
-    left: 16px;
-    right: 16px;
-    bottom: 16px;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .header-datetime {
+    display: none !important;
   }
 
   /* Consultation 3-column layout collapses to single column on mobile */
   .consultation-workspace-layout {
     grid-template-columns: 1fr !important;
+  }
+
+  .table-actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* Small Mobile Screens (<= 480px) */
+@media (max-width: 480px) {
+  .v-card {
+    padding: 12px;
+    border-radius: var(--radius-sm);
+  }
+
+  .stat-card {
+    padding: 14px;
+  }
+
+  .stat-card-value {
+    font-size: 1.5rem;
+  }
+
+  .btn {
+    padding: 0 12px;
+    font-size: 0.8125rem;
+  }
+
+  .btn-sm {
+    padding: 0 8px;
+    font-size: 0.75rem;
   }
 }

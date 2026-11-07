@@ -32,41 +32,55 @@ class AnalyticsService {
       filterEnd = new Date(todayStr + 'T23:59:59.999Z');
     }
 
-    // Filter bills within selected period (excluding cancelled invoices from revenue totals)
-    const filteredBillsRaw = await prisma.bill.findMany({
+    // Query all bills in period for accurate cash-flow tracking and cancellation audit
+    const allPeriodBillsRaw = await prisma.bill.findMany({
       where: {
         createdAt: {
           gte: filterStart,
           lte: filterEnd
-        },
-        invoiceStatus: { not: 'Cancelled' },
-        paymentStatus: { not: 'Cancelled' }
+        }
       }
     });
+
+    // Active bills within selected period (excluding cancelled invoices from billed revenue totals)
+    const filteredBillsRaw = allPeriodBillsRaw.filter(
+      b => b.invoiceStatus !== 'Cancelled' && b.paymentStatus !== 'Cancelled'
+    );
 
     const filteredBills = filteredBillsRaw.map(b => ({
       ...b,
       procedures: typeof b.procedures === 'string' ? safeParse(b.procedures, []) : (b.procedures || [])
     }));
 
+    // Cancelled bills within period for traceable audit
+    const cancelledBills = allPeriodBillsRaw.filter(b => b.invoiceStatus === 'Cancelled');
+    const totalCancelledRevenue = cancelledBills.reduce((acc, b) => acc + (b.total || 0), 0);
+    const totalCancelledPaid = cancelledBills.reduce((acc, b) => acc + (b.paid || 0), 0);
+
     // High Level KPIs
+    // 1. totalRevenue: Active billed revenue only (excludes cancelled invoices)
     const totalRevenue = filteredBills.reduce((acc, b) => acc + (b.total || 0), 0);
     const totalDoctorPayout = filteredBills.reduce((acc, b) => acc + (b.doctorCutTotal || 0), 0);
     const totalClinicRevenue = filteredBills.reduce((acc, b) => acc + (b.clinicShareTotal || 0), 0);
-    const totalPaidReceived = filteredBills.reduce((acc, b) => acc + (b.paid || 0), 0);
+    // 2. totalPaidReceived: All cash collected into clinic account (preserves collected payments even if invoice was voided)
+    const totalPaidReceived = allPeriodBillsRaw.reduce((acc, b) => acc + (b.paid || 0), 0);
+    // 3. totalOutstanding: Pending balances from active bills only (cancelled invoices have 0 outstanding balance)
     const totalOutstanding = filteredBills.reduce((acc, b) => acc + (b.balance || 0), 0);
 
     // Period comparisons - Today's bills
     const todayStart = new Date(todayStr + 'T00:00:00.000Z');
     const todayEnd = new Date(todayStr + 'T23:59:59.999Z');
-    const todayBills = await prisma.bill.findMany({
+    const allTodayBills = await prisma.bill.findMany({
       where: {
-        createdAt: { gte: todayStart, lte: todayEnd },
-        invoiceStatus: { not: 'Cancelled' },
-        paymentStatus: { not: 'Cancelled' }
+        createdAt: { gte: todayStart, lte: todayEnd }
       }
     });
-    const revenueToday = todayBills.reduce((acc, b) => acc + (b.total || 0), 0);
+    // Active revenue billed today (excludes cancelled invoices)
+    const todayActiveBills = allTodayBills.filter(
+      b => b.invoiceStatus !== 'Cancelled' && b.paymentStatus !== 'Cancelled'
+    );
+    const revenueToday = todayActiveBills.reduce((acc, b) => acc + (b.total || 0), 0);
+    const paidToday = allTodayBills.reduce((acc, b) => acc + (b.paid || 0), 0);
 
     // Patients registered
     const totalPatients = await prisma.patient.count();
@@ -183,10 +197,13 @@ class AnalyticsService {
       summary: {
         totalRevenue,
         revenueToday,
+        paidToday,
         totalDoctorPayout,
         totalClinicRevenue,
         totalPaidReceived,
         totalOutstanding,
+        totalCancelledRevenue,
+        totalCancelledPaid,
         totalConsultations: consultationCount,
         totalProcedures: procedureCount,
         consultationRevenue,

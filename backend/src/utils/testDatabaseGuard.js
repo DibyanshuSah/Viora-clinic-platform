@@ -56,6 +56,26 @@ function setupTestDatabase(options = {}) {
     throw new Error(`Production baseline file not found at ${prodDbFile}`);
   }
 
+  // Ensure test database schema includes patient status column
+  try {
+    const { execFileSync } = require('child_process');
+    const pyCode = [
+      'import sqlite3, sys',
+      'db = sys.argv[1]',
+      'conn = sqlite3.connect(db)',
+      'c = conn.cursor()',
+      'c.execute("PRAGMA table_info(patients);")',
+      'cols = [r[1] for r in c.fetchall()]',
+      'if "status" not in cols:',
+      '    c.execute("ALTER TABLE patients ADD COLUMN status TEXT NOT NULL DEFAULT \'Active\';")',
+      'conn.commit()',
+      'conn.close()'
+    ].join('\n');
+    execFileSync('python', ['-c', pyCode, testDbFile], { stdio: 'pipe' });
+  } catch (err) {
+    console.warn('[testDatabaseGuard] Note on test db schema update:', err.message);
+  }
+
   // Ensure test baseline includes doctors and credentials needed for end-to-end tests
   try {
     const { execSync } = require('child_process');

@@ -66,7 +66,7 @@ const DoctorPatientsPage = () => {
       render: (row) => (
         <div style={{ fontSize: '0.8rem' }}>
           <div>{row.phone}</div>
-          <div style={{ color: 'var(--text-muted)' }}>{row.city || 'Bengaluru'}</div>
+          <div style={{ color: 'var(--text-muted)' }}>{row.city || ''}</div>
         </div>
       )
     },

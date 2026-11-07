@@ -66,8 +66,8 @@ const StaffRegistrationPage = () => {
     sameAsPhone: true,
     email: '',
     address: '',
-    city: 'Bengaluru',
-    state: 'Karnataka',
+    city: '',
+    state: '',
     pinCode: '',
     allergies: 'None',
     medicalHistory: 'None',
@@ -410,8 +410,8 @@ const StaffRegistrationPage = () => {
         sameAsPhone: true,
         email: '',
         address: '',
-        city: 'Bengaluru',
-        state: 'Karnataka',
+        city: '',
+        state: '',
         pinCode: '',
         allergies: 'None',
         medicalHistory: 'None',
@@ -437,8 +437,8 @@ const StaffRegistrationPage = () => {
         sameAsPhone: isSame,
         email: pat.email || '',
         address: pat.address || '',
-        city: pat.city || 'Bengaluru',
-        state: pat.state || 'Karnataka',
+        city: pat.city || '',
+        state: pat.state || '',
         pinCode: pat.pinCode || '',
         allergies: pat.allergies || 'None',
         medicalHistory: pat.medicalHistory || 'None',
@@ -633,8 +633,8 @@ const StaffRegistrationPage = () => {
                     phone: '',
                     email: '',
                     address: '',
-                    city: 'Bengaluru',
-                    state: 'Karnataka',
+                    city: '',
+                    state: '',
                     pinCode: '',
                     allergies: 'None',
                     medicalHistory: 'None',
@@ -662,9 +662,11 @@ const StaffRegistrationPage = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '16px 24px',
-          backgroundColor: '#FFFFFF'
-        }}
+            padding: '14px 20px',
+            backgroundColor: '#FFFFFF',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div
@@ -794,8 +796,8 @@ const StaffRegistrationPage = () => {
                       sameAsPhone: true,
                       email: '',
                       address: '',
-                      city: 'Bengaluru',
-                      state: 'Karnataka',
+                      city: '',
+                      state: '',
                       pinCode: '',
                       allergies: 'None',
                       medicalHistory: 'None',
@@ -1288,18 +1290,21 @@ const StaffRegistrationPage = () => {
                   name="city"
                   value={patientData.city}
                   onChange={(e) => setPatientData({ ...patientData, city: e.target.value })}
+                  placeholder="Enter city"
                 />
                 <FormInput
                   label="State"
                   name="state"
                   value={patientData.state}
                   onChange={(e) => setPatientData({ ...patientData, state: e.target.value })}
+                  placeholder="Enter state"
                 />
                 <FormInput
                   label="PIN Code"
                   name="pinCode"
                   value={patientData.pinCode}
                   onChange={(e) => setPatientData({ ...patientData, pinCode: e.target.value })}
+                  placeholder="Enter PIN code"
                 />
               </div>
 

@@ -527,6 +527,93 @@ class BillingService {
   }
 
   /**
+   * Permanently delete a voided/cancelled invoice from the database
+   * STRICT: Only ADMIN role allowed
+   * STRICT: Only invoices with invoiceStatus === 'Cancelled' can be deleted
+   * Prevents accidental deletion of active, paid, or pending invoices
+   */
+  async permanentlyDeleteBill(billId, currentUser = null, reason = '') {
+    // 1. Role validation (defense-in-depth)
+    if (!currentUser || currentUser.role !== 'ADMIN') {
+      throw {
+        statusCode: 403,
+        message: 'Access denied. Only administrators can permanently delete voided invoices.'
+      };
+    }
+
+    // 2. Fetch bill to verify status
+    const current = await prisma.bill.findFirst({
+      where: {
+        OR: [
+          { billId },
+          { invoiceNumber: billId }
+        ]
+      }
+    });
+
+    if (!current) {
+      throw { statusCode: 404, message: 'Invoice not found' };
+    }
+
+    // 3. Strict invoiceStatus check: ONLY CANCELLED INVOICES
+    if (current.invoiceStatus !== 'Cancelled') {
+      throw {
+        statusCode: 400,
+        message: `Cannot permanently delete invoice "${current.invoiceNumber}". Only cancelled/voided invoices can be permanently deleted. Active, paid, or pending invoices must first be cancelled through the cancellation workflow.`
+      };
+    }
+
+    const paidAmount = Number(current.paid) || 0;
+    const totalAmount = Number(current.total) || 0;
+    const invoiceNumber = current.invoiceNumber;
+    const patientId = current.patientId;
+    const paymentMethod = current.paymentMethod || 'N/A';
+
+    // 4. Atomic deletion within transaction
+    return await prisma.$transaction(async (tx) => {
+      // 4a. Detach WhatsApp messages referencing this bill (prevents FK constraint violation while preserving message log)
+      await tx.whatsAppMessage.updateMany({
+        where: { billId: current.billId },
+        data: { billId: null }
+      });
+
+      // 4b. Purge bill access links (secure UUID tokens)
+      await tx.billAccessLink.deleteMany({
+        where: { billId: current.billId }
+      });
+
+      // 4c. Delete the bill permanently from the database
+      await tx.bill.delete({
+        where: { billId: current.billId }
+      });
+
+      // 4d. Create immutable system audit log without unnecessary medical info
+      const auditDetails = `Permanently deleted voided invoice ${invoiceNumber} (Patient: ${patientId}, Original Amount: ₹${totalAmount.toLocaleString()}, Associated Payment Removed: ₹${paidAmount.toLocaleString()}, Method: ${paymentMethod}${reason ? `, Reason: ${reason}` : ''}). Ledger adjusted.`;
+
+      await tx.systemAuditLog.create({
+        data: {
+          action: 'BILL_PERMANENTLY_DELETED',
+          resourceType: 'BILL',
+          resourceId: invoiceNumber,
+          patientId,
+          userId: currentUser.id || currentUser.userId || 'admin',
+          userName: currentUser.name || currentUser.username || 'Admin',
+          userRole: 'ADMIN',
+          details: auditDetails
+        }
+      });
+
+      return {
+        billId: current.billId,
+        invoiceNumber,
+        deletedPaidAmount: paidAmount,
+        deletedTotalAmount: totalAmount,
+        message: `Invoice ${invoiceNumber} permanently deleted from database and ledger adjusted`
+      };
+    });
+  }
+
+  /**
    * Soft Cancel all bills for a patient
    */
   async deletePatientTotalBills(patientId, currentUser = null) {
@@ -561,7 +648,8 @@ class BillingService {
 
     return {
       patientId,
-      deletedCount: count,
+      cancelledCount: count,
+      deletedCount: count, // Maintained for backward compatibility
       totalAmount,
       message: `Successfully cancelled all ${count} bill(s) (₹${totalAmount.toLocaleString()}) for patient ${patient ? patient.name : patientId}`
     };

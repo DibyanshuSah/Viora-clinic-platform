@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import AppSidebar from '../components/layout/AppSidebar';
 import TopHeader from '../components/layout/TopHeader';
@@ -6,8 +6,17 @@ import { useAuth } from '../context/AuthContext';
 
 const DoctorLayout = () => {
   const { isAuthenticated, role, loading } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+
+  const handleMenuClick = useCallback(() => {
+    if (window.innerWidth <= 768) {
+      setMobileOpen(prev => !prev);
+    } else {
+      setSidebarOpen(prev => !prev);
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -37,7 +46,7 @@ const DoctorLayout = () => {
   };
 
   return (
-    <div className="app-container role-doctor">
+    <div className={`app-container role-doctor${sidebarOpen ? '' : ' sidebar-collapsed'}`}>
       <AppSidebar
         mobileOpen={mobileOpen}
         setMobileOpen={setMobileOpen}
@@ -46,7 +55,8 @@ const DoctorLayout = () => {
         <TopHeader
           title={getPageTitle()}
           breadcrumb={['Clinical Practice']}
-          onMenuClick={() => setMobileOpen(true)}
+          onMenuClick={handleMenuClick}
+          sidebarOpen={sidebarOpen}
         />
         <main className="page-body">
           <Outlet />

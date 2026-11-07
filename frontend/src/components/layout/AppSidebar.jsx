@@ -12,14 +12,13 @@ import {
   ListFilter,
   Settings,
   LogOut,
-  Stethoscope,
-  ShieldAlert
+  Stethoscope
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useClinic } from '../../context/ClinicContext';
 
 const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
-  const { user, role, logout, switchDemoRole } = useAuth();
+  const { user, role, logout } = useAuth();
   const { clinic } = useClinic();
   const navigate = useNavigate();
 
@@ -72,6 +71,7 @@ const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
         <div
           className="sidebar-backdrop"
           onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
         />
       )}
       <aside
@@ -81,7 +81,7 @@ const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
         <div>
           <div
             style={{
-              padding: '20px 16px',
+              padding: '18px 16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-start',
@@ -130,21 +130,22 @@ const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
                   style={{
                     fontSize: '1.15rem',
                     fontWeight: 800,
-                    letterSpacing: '0.04em',
-                    lineHeight: 1.1
+                    letterSpacing: '0.03em',
+                    lineHeight: 1.1,
+                    color: '#FFFFFF'
                   }}
                 >
-                  VIORA
+                  {clinic?.clinicName || 'VIORA'}
                 </div>
                 <div
                   style={{
                     fontSize: '0.68rem',
-                    color: 'var(--text-muted)',
+                    color: '#94A3B8',
                     textTransform: 'uppercase',
                     letterSpacing: '0.06em'
                   }}
                 >
-                  Clinic Management
+                  Clinic Platform
                 </div>
               </div>
             </div>
@@ -154,8 +155,8 @@ const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
           {user && (
             <div
               style={{
-                padding: '14px 16px',
-                margin: '12px 12px 6px',
+                padding: '12px 14px',
+                margin: '12px 10px 6px',
                 backgroundColor: 'rgba(255, 255, 255, 0.04)',
                 borderRadius: 'var(--radius-sm)',
                 border: '1px solid rgba(255, 255, 255, 0.06)'
@@ -183,7 +184,7 @@ const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
               >
                 <span
                   style={{
-                    fontSize: '0.7rem',
+                    fontSize: '0.68rem',
                     fontWeight: 700,
                     padding: '2px 8px',
                     borderRadius: '4px',
@@ -219,7 +220,7 @@ const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
 
           {/* NAVIGATION LINKS */}
           <nav style={{ padding: '8px' }}>
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '3px' }}>
               {navLinks.map((link) => {
                 const IconComponent = link.icon;
                 return (
@@ -231,7 +232,7 @@ const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
                         display: 'flex',
                         alignItems: 'center',
                         gap: '12px',
-                        padding: '10px 12px',
+                        padding: '9px 12px',
                         justifyContent: 'flex-start',
                         borderRadius: 'var(--radius-sm)',
                         color: isActive ? '#FFFFFF' : '#94A3B8',
@@ -260,6 +261,7 @@ const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
         {/* BOTTOM SECTION: LOGOUT */}
         <div style={{ padding: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
           <button
+            type="button"
             onClick={handleLogout}
             style={{
               width: '100%',
@@ -279,7 +281,7 @@ const AppSidebar = ({ mobileOpen, setMobileOpen }) => {
             }}
           >
             <LogOut size={16} />
-            <span>Logout</span>
+            <span>Sign Out</span>
           </button>
         </div>
       </aside>

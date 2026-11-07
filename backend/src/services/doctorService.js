@@ -33,12 +33,14 @@ class DoctorService {
     };
   }
 
-  async getAllDoctors() {
+  async getAllDoctors(options = {}) {
+    const where = options.includeInactive ? {} : { status: 'Active' };
     const doctors = await prisma.doctor.findMany({
+      where,
       orderBy: { createdAt: 'asc' }
     });
 
-    const userIds = doctors.map(d => d.userId);
+    const userIds = doctors.map(d => d.userId).filter(Boolean);
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } }
     });

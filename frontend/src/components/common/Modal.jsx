@@ -15,13 +15,19 @@ const Modal = ({
         onClose();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  const sizeClass = size === 'lg' ? 'modal-lg' : size === 'xl' ? 'modal-xl' : '';
+  const sizeClass = size === 'sm' ? 'modal-sm' : size === 'lg' ? 'modal-lg' : size === 'xl' ? 'modal-xl' : '';
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -30,10 +36,14 @@ const Modal = ({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-labelledby="modal-header-title"
       >
         <div className="modal-header">
-          <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700 }}>{title}</h3>
+          <h3 id="modal-header-title" style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-main)' }}>
+            {title}
+          </h3>
           <button
+            type="button"
             onClick={onClose}
             style={{
               background: 'transparent',
@@ -41,9 +51,21 @@ const Modal = ({
               cursor: 'pointer',
               color: 'var(--text-muted)',
               display: 'flex',
-              padding: '4px',
-              borderRadius: '4px'
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '6px',
+              borderRadius: 'var(--radius-sm)',
+              transition: 'background-color var(--transition-fast), color var(--transition-fast)'
             }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#F1F5F9';
+              e.currentTarget.style.color = 'var(--text-main)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = 'var(--text-muted)';
+            }}
+            aria-label="Close modal"
           >
             <X size={18} />
           </button>

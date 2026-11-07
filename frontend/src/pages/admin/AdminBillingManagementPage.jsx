@@ -36,6 +36,7 @@ import { LoadingState } from '../../components/common/LoadingState';
 
 const AdminBillingManagementPage = () => {
   const [bills, setBills] = useState([]);
+  const [allBills, setAllBills] = useState([]);
   const [logs, setLogs] = useState([]);
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -83,7 +84,12 @@ const AdminBillingManagementPage = () => {
         api.getAuditLogs().catch(() => ({ success: false, data: { logs: [] } }))
       ]);
 
-      if (billsRes.success) setBills(billsRes.data);
+      if (billsRes.success) {
+        setAllBills(billsRes.data);
+        // Only show active (non-cancelled) invoices in the main billing table.
+        // Cancelled invoices are accessible via the Voided Invoices tab and Audit Logs.
+        setBills(billsRes.data.filter((b) => b.invoiceStatus !== 'Cancelled'));
+      }
       
       const combinedLogs = [];
       if (auditRes.success && auditRes.data?.logs?.length > 0) {
@@ -190,9 +196,19 @@ const AdminBillingManagementPage = () => {
   }, []);
 
   // Summary Metrics
+  // 1. Total Billed: Active invoiced revenue only (excludes cancelled invoices)
   const totalBilled = useMemo(() => bills.reduce((acc, b) => acc + (Number(b.total) || 0), 0), [bills]);
-  const totalCollected = useMemo(() => bills.reduce((acc, b) => acc + (Number(b.paid) || 0), 0), [bills]);
-  const totalOutstanding = useMemo(() => Math.max(0, totalBilled - totalCollected), [totalBilled, totalCollected]);
+
+  // 2. Total Collected: Cash collected across all invoices (preserves payments received on voided invoices)
+  const totalCollected = useMemo(() => allBills.reduce((acc, b) => acc + (Number(b.paid) || 0), 0), [allBills]);
+
+  // 3. Outstanding Balance: Pending balance from active invoices only (cancelled invoices have 0 balance)
+  const totalOutstanding = useMemo(() => bills.reduce((acc, b) => acc + Math.max(0, (Number(b.balance) || 0)), 0), [bills]);
+
+  // 4. Cancelled Bills traceability
+  const cancelledBills = useMemo(() => allBills.filter(b => b.invoiceStatus === 'Cancelled'), [allBills]);
+  const totalCancelledBilled = useMemo(() => cancelledBills.reduce((acc, b) => acc + (Number(b.total) || 0), 0), [cancelledBills]);
+  const totalCancelledPaid = useMemo(() => cancelledBills.reduce((acc, b) => acc + (Number(b.paid) || 0), 0), [cancelledBills]);
 
   // Patients who currently have bills
   const patientsWithBills = useMemo(() => {
@@ -258,37 +274,52 @@ const AdminBillingManagementPage = () => {
     }
   };
 
-  // Handle Delete Single Bill
+  // Handle Delete Single Bill (Soft Cancel if active; Permanent Deletion if voided)
   const handleConfirmDeleteBill = async () => {
     if (!billToDelete) return;
     try {
       setDeletingBill(true);
-      const res = await api.deleteBill(billToDelete.billId);
+      const isVoided = billToDelete.invoiceStatus === 'Cancelled';
+      let res;
+      if (isVoided) {
+        // Permanent deletion for voided invoices
+        res = await api.permanentlyDeleteBill(billToDelete.billId);
+      } else {
+        // Soft cancellation for active invoices
+        res = await api.deleteBill(billToDelete.billId);
+      }
+
       if (res.success) {
-        showToast(`Invoice ${billToDelete.invoiceNumber} deleted from system`, 'success');
+        showToast(
+          res.message || (isVoided
+            ? `Invoice ${billToDelete.invoiceNumber} permanently deleted from database`
+            : `Invoice ${billToDelete.invoiceNumber} cancelled successfully`),
+          'success'
+        );
         setDeleteBillModalOpen(false);
         setBillToDelete(null);
         fetchData();
       }
     } catch (err) {
-      showToast(err.message || 'Failed to delete bill', 'error');
+      showToast(err.message || 'Failed to process invoice request', 'error');
     } finally {
       setDeletingBill(false);
     }
   };
 
-  // Handle Delete Total Bills for Patient
-  const handleConfirmDeletePatientBills = async () => {
+  // Handle Cancel Total Bills for Patient
+  const handleConfirmCancelPatientBills = async () => {
     if (!selectedPatientIdForDelete) {
-      showToast('Please select a patient to delete bills', 'error');
+      showToast('Please select a patient to cancel bills', 'error');
       return;
     }
     try {
       setDeletingPatientBills(true);
-      const res = await api.deletePatientBills(selectedPatientIdForDelete);
+      const res = await api.cancelPatientBills(selectedPatientIdForDelete);
       if (res.success) {
+        const count = res.data.cancelledCount ?? res.data.deletedCount;
         showToast(
-          `Successfully deleted ${res.data.deletedCount} bill(s) (₹${res.data.totalAmount.toLocaleString()}) for patient ${selectedPatientIdForDelete}`,
+          `Successfully cancelled ${count} bill(s) (₹${res.data.totalAmount.toLocaleString()}) for patient ${selectedPatientIdForDelete}`,
           'success'
         );
         setDeletePatientBillsModalOpen(false);
@@ -296,7 +327,7 @@ const AdminBillingManagementPage = () => {
         fetchData();
       }
     } catch (err) {
-      showToast(err.message || 'Failed to delete patient bills', 'error');
+      showToast(err.message || 'Failed to cancel patient bills', 'error');
     } finally {
       setDeletingPatientBills(false);
     }
@@ -373,6 +404,59 @@ const AdminBillingManagementPage = () => {
             DELETED
           </span>
         );
+      case 'CANCELLED':
+        return (
+          <span
+            style={{
+              padding: '3px 8px',
+              borderRadius: '9999px',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              backgroundColor: '#FFEDD5',
+              color: '#C2410C',
+              border: '1px solid #FED7AA',
+              display: 'inline-block'
+            }}
+          >
+            CANCELLED
+          </span>
+        );
+      case 'PERMANENTLY_DELETED':
+      case 'BILL_PERMANENTLY_DELETED':
+      case 'INVOICE_PERMANENTLY_DELETED':
+        return (
+          <span
+            style={{
+              padding: '3px 8px',
+              borderRadius: '9999px',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              backgroundColor: '#FEE2E2',
+              color: '#991B1B',
+              border: '1px solid #FECACA',
+              display: 'inline-block'
+            }}
+          >
+            PERMANENTLY DELETED
+          </span>
+        );
+      case 'PATIENT_BILLS_CANCELLED':
+        return (
+          <span
+            style={{
+              padding: '3px 8px',
+              borderRadius: '9999px',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              backgroundColor: '#FEE2E2',
+              color: '#B91C1C',
+              border: '1px solid #FECACA',
+              display: 'inline-block'
+            }}
+          >
+            ALL BILLS CANCELLED
+          </span>
+        );
       case 'PATIENT_BILLS_DELETED':
         return (
           <span
@@ -387,7 +471,7 @@ const AdminBillingManagementPage = () => {
               display: 'inline-block'
             }}
           >
-            TOTAL BILL DELETED
+            ALL BILLS CANCELLED
           </span>
         );
       case 'LINK_GENERATED':
@@ -544,14 +628,36 @@ const AdminBillingManagementPage = () => {
     },
     {
       header: 'Status',
-      render: (row) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-          {row.invoiceStatus && row.invoiceStatus !== 'Active' && (
-            <StatusBadge status={row.invoiceStatus} />
-          )}
-          <StatusBadge status={row.paymentStatus} />
-        </div>
-      )
+      render: (row) => {
+        const isCancelledWithPayment =
+          row.invoiceStatus === 'Cancelled' && row.paymentStatus === 'Paid';
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            {row.invoiceStatus && row.invoiceStatus !== 'Active' && (
+              <StatusBadge status={row.invoiceStatus} />
+            )}
+            <StatusBadge status={row.paymentStatus} />
+            {isCancelledWithPayment && (
+              <span
+                title="Payment was collected before cancellation — amount retained in records for accounting integrity"
+                style={{
+                  fontSize: '0.65rem',
+                  color: '#92400E',
+                  backgroundColor: '#FEF3C7',
+                  border: '1px solid #FDE68A',
+                  borderRadius: '4px',
+                  padding: '1px 5px',
+                  cursor: 'help',
+                  display: 'inline-block',
+                  lineHeight: '1.4'
+                }}
+              >
+                ⚠ Paid before void
+              </span>
+            )}
+          </div>
+        );
+      }
     },
     {
       header: 'WhatsApp & Link Access',
@@ -627,7 +733,7 @@ const AdminBillingManagementPage = () => {
     {
       header: 'Actions',
       render: (row) => (
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <div className="table-actions">
           <button
             onClick={() => {
               setSelectedInvoice(row);
@@ -639,14 +745,16 @@ const AdminBillingManagementPage = () => {
           >
             <Printer size={13} /> Bill
           </button>
-          <button
-            onClick={() => handleOpenEdit(row)}
-            className="btn btn-secondary btn-sm"
-            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-            title="Edit Bill & Payment"
-          >
-            <Edit size={13} /> Edit
-          </button>
+          {row.invoiceStatus !== 'Cancelled' && (
+            <button
+              onClick={() => handleOpenEdit(row)}
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+              title="Edit Bill & Payment"
+            >
+              <Edit size={13} /> Edit
+            </button>
+          )}
           <button
             onClick={() => {
               setBillToDelete(row);
@@ -654,7 +762,7 @@ const AdminBillingManagementPage = () => {
             }}
             className="btn btn-danger btn-sm"
             style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-            title="Delete this Bill"
+            title={row.invoiceStatus === 'Cancelled' ? "Permanently Delete Voided Invoice" : "Cancel this Invoice"}
           >
             <Trash2 size={13} />
           </button>
@@ -775,40 +883,48 @@ const AdminBillingManagementPage = () => {
               }}
               className="btn btn-danger btn-sm"
               style={{ fontWeight: 700 }}
-              title="Delete all bills for a specific patient"
+              title="Cancel all active bills for a specific patient"
             >
-              <Trash2 size={14} /> Delete Total Bill for Patient
+              <Trash2 size={14} /> Cancel Total Bill for Patient
             </button>
           </div>
         </div>
 
         {/* SUMMARY STAT METRICS */}
-        <div className="stat-grid" style={{ marginTop: '16px' }}>
+        <div className="stat-card-grid" style={{ marginTop: '16px' }}>
           <StatCard
             label="Total Invoiced"
             value={`₹${totalBilled.toLocaleString()}`}
-            subtext={`${bills.length} total bills created`}
+            subtext={`${bills.length} active bills`}
             icon={IndianRupee}
             role="admin"
           />
           <StatCard
             label="Total Collected"
             value={`₹${totalCollected.toLocaleString()}`}
-            subtext="Payments cleared into clinic account"
+            subtext={
+              totalCancelledPaid > 0
+                ? `Includes ₹${totalCancelledPaid.toLocaleString()} paid on voided bills`
+                : "Payments cleared into clinic account"
+            }
             icon={CheckCircle2}
             role="admin"
           />
           <StatCard
             label="Outstanding Balance"
             value={`₹${totalOutstanding.toLocaleString()}`}
-            subtext="Pending payment from patients"
+            subtext="Pending payment on active bills"
             icon={AlertTriangle}
             role="admin"
           />
           <StatCard
             label="Audit Log Entries"
             value={logs.length}
-            subtext="Tracked billing generation & edits"
+            subtext={
+              cancelledBills.length > 0
+                ? `${cancelledBills.length} voided (₹${totalCancelledBilled.toLocaleString()}) tracked`
+                : "Tracked billing generation & edits"
+            }
             icon={History}
             role="admin"
           />
@@ -866,6 +982,26 @@ const AdminBillingManagementPage = () => {
           >
             <History size={16} /> Billing Audit & Change Logs ({logs.length})
           </button>
+
+          <button
+            onClick={() => setActiveTab('cancelled')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 16px',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '0.85rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              border: activeTab === 'cancelled' ? '2px solid var(--role-admin-primary)' : '1px solid var(--border-subtle)',
+              backgroundColor: activeTab === 'cancelled' ? 'var(--role-admin-primary)' : '#FFFFFF',
+              color: activeTab === 'cancelled' ? '#FFFFFF' : 'var(--text-main)',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <AlertTriangle size={16} /> Voided Invoices ({cancelledBills.length})
+          </button>
         </div>
 
         {/* TAB CONTENT: INVOICES */}
@@ -905,13 +1041,32 @@ const AdminBillingManagementPage = () => {
             />
           </div>
         )}
+
+        {/* TAB CONTENT: VOIDED INVOICES */}
+        {activeTab === 'cancelled' && (
+          <div>
+            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Viewing all voided and cancelled invoices. Retained for financial traceability and audit integrity.
+              </span>
+            </div>
+
+            <DataTable
+              columns={invoiceColumns}
+              data={cancelledBills}
+              searchPlaceholder="Search voided invoices by invoice #, patient, doctor..."
+              loading={loading}
+              emptyMessage="No voided or cancelled invoices found"
+            />
+          </div>
+        )}
       </div>
 
-      {/* MODAL: DELETE TOTAL BILL FOR PATIENT */}
+      {/* MODAL: CANCEL TOTAL BILL FOR PATIENT */}
       <Modal
         isOpen={deletePatientBillsModalOpen}
         onClose={() => setDeletePatientBillsModalOpen(false)}
-        title="Delete Total Bill for Patient"
+        title="Cancel Total Bill for Patient"
         size="md"
         footer={
           <>
@@ -921,16 +1076,16 @@ const AdminBillingManagementPage = () => {
               onClick={() => setDeletePatientBillsModalOpen(false)}
               disabled={deletingPatientBills}
             >
-              Cancel
+              Close
             </button>
             <button
               type="button"
               className="btn btn-danger btn-sm"
-              onClick={handleConfirmDeletePatientBills}
+              onClick={handleConfirmCancelPatientBills}
               disabled={!selectedPatientIdForDelete || deletingPatientBills}
               style={{ fontWeight: 700 }}
             >
-              {deletingPatientBills ? 'Deleting Bills...' : 'Confirm Total Bill Deletion'}
+              {deletingPatientBills ? 'Cancelling Bills...' : 'Confirm Total Bill Cancellation'}
             </button>
           </>
         }
@@ -950,11 +1105,11 @@ const AdminBillingManagementPage = () => {
             <ShieldAlert size={22} color="#DC2626" style={{ flexShrink: 0, marginTop: '2px' }} />
             <div>
               <div style={{ fontWeight: 800, color: '#991B1B', fontSize: '0.875rem' }}>
-                Permanent Total Bill Deletion Warning
+                Invoice Cancellation Notice
               </div>
               <p style={{ margin: '4px 0 0 0', color: '#B91C1C', fontSize: '0.8rem', lineHeight: '1.4' }}>
-                This action will delete <strong>ALL bills and invoices</strong> associated with the selected patient from the system.
-                The patient record itself will remain intact, but all billing and financial history will be purged. This action is permanently logged in the audit trail.
+                This action will void and cancel <strong>ALL active bills and invoices</strong> associated with the selected patient.
+                The invoices will be marked as Cancelled, preserving sequential invoice numbers and the financial audit trail while zeroing active dues.
               </p>
             </div>
           </div>
@@ -1131,7 +1286,7 @@ const AdminBillingManagementPage = () => {
         )}
       </Modal>
 
-      {/* CONFIRMATION MODAL: DELETE SINGLE BILL */}
+      {/* CONFIRMATION MODAL: DELETE / CANCEL SINGLE BILL */}
       <ConfirmationModal
         isOpen={deleteBillModalOpen}
         onClose={() => {
@@ -1139,13 +1294,15 @@ const AdminBillingManagementPage = () => {
           setBillToDelete(null);
         }}
         onConfirm={handleConfirmDeleteBill}
-        title="Delete Bill & Invoice"
+        title={billToDelete?.invoiceStatus === 'Cancelled' ? "Permanently Delete Voided Invoice" : "Cancel Invoice"}
         message={
           billToDelete
-            ? `Are you sure you want to delete invoice "${billToDelete.invoiceNumber}" for patient "${billToDelete.patientName}" (₹${billToDelete.total?.toLocaleString()})? This action will permanently remove this invoice and record an audit log.`
-            : 'Are you sure you want to delete this bill?'
+            ? billToDelete.invoiceStatus === 'Cancelled'
+              ? `Are you sure you want to permanently delete voided invoice "${billToDelete.invoiceNumber}" for patient "${billToDelete.patientName}" (Total: ₹${Number(billToDelete.total || 0).toLocaleString()}, Associated Paid: ₹${Number(billToDelete.paid || 0).toLocaleString()})? WARNING: This operation is permanent and irreversible. The invoice record will be deleted from the database and ₹${Number(billToDelete.paid || 0).toLocaleString()} will be deducted from Total Collected analytics. An immutable audit record will be preserved.`
+              : `Are you sure you want to cancel invoice "${billToDelete.invoiceNumber}" for patient "${billToDelete.patientName}" (₹${billToDelete.total?.toLocaleString()})? The invoice will be voided and preserved in the audit log — no data will be deleted.`
+            : 'Are you sure you want to proceed?'
         }
-        confirmText="Delete Invoice"
+        confirmText={billToDelete?.invoiceStatus === 'Cancelled' ? "Permanently Delete" : "Cancel Invoice"}
         isDestructive={true}
         loading={deletingBill}
       />

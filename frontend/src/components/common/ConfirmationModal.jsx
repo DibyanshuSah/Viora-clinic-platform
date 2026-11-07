@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, HelpCircle } from 'lucide-react';
 import Modal from './Modal';
 
 const ConfirmationModal = ({
@@ -41,25 +41,23 @@ const ConfirmationModal = ({
       }
     >
       <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-        {isDestructive && (
-          <div
-            style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--status-danger-bg)',
-              color: 'var(--status-danger-text)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0
-            }}
-          >
-            <AlertTriangle size={20} />
-          </div>
-        )}
+        <div
+          style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '50%',
+            backgroundColor: isDestructive ? 'var(--status-danger-bg)' : 'var(--role-admin-bg)',
+            color: isDestructive ? 'var(--status-danger-text)' : 'var(--role-admin-primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}
+        >
+          {isDestructive ? <AlertTriangle size={20} /> : <HelpCircle size={20} />}
+        </div>
         <div>
-          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
             {message}
           </p>
         </div>

@@ -222,7 +222,7 @@ const LoginPage = () => {
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="username"
+            placeholder="Enter username"
             icon={User}
             required
           />

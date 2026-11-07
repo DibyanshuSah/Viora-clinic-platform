@@ -331,9 +331,9 @@ const DoctorAppointmentsPage = () => {
       }
     },
     {
-      header: 'Actions (RX • Bill • Cancel • Consult)',
+      header: 'Actions',
       render: (row) => (
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <div className="table-actions">
           {/* 1. RX */}
           <button
             onClick={() => handleOpenRX(row)}

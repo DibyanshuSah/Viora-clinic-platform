@@ -112,8 +112,12 @@ const StaffDashboardPage = () => {
   const completedAppointments = appointments.filter((a) => a.status === 'Completed');
   const activeDoctors = doctors.filter((d) => d.isWorkingToday);
 
-  const revenueBilledToday = bills.reduce((acc, b) => acc + (b.total || 0), 0);
-  const pendingPayments = bills.filter((b) => b.paymentStatus !== 'Paid').reduce((acc, b) => acc + (b.balance || 0), 0);
+  const revenueBilledToday = bills
+    .filter((b) => b.invoiceStatus !== 'Cancelled')
+    .reduce((acc, b) => acc + (b.total || 0), 0);
+  const pendingPayments = bills
+    .filter((b) => b.invoiceStatus !== 'Cancelled' && b.paymentStatus !== 'Paid')
+    .reduce((acc, b) => acc + (b.balance || 0), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
@@ -205,7 +209,7 @@ const StaffDashboardPage = () => {
       </div>
 
       {/* TWO-COLUMN GRID: TODAY'S QUEUE & DOCTOR SCHEDULES */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 'var(--spacing-lg)' }}>
+      <div className="grid-two-column-split">
         {/* ACTIVE APPOINTMENT QUEUE */}
         <div className="v-card">
           <div className="v-card-header">

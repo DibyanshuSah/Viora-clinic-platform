@@ -8,10 +8,38 @@ class PatientService {
     return await idGenerator.peekNextPatientId();
   }
 
-  async getAllPatients(query = '') {
+  async getAllPatients(query = '', options = {}) {
     let patients = await prisma.patient.findMany({
       orderBy: { createdAt: 'desc' }
     });
+
+    // Operational list filters out archived patients unless explicitly requested
+    if (!options.includeArchived) {
+      patients = patients.filter(p => !p.status || p.status === 'Active');
+    }
+
+    // Doctor-scoped access: only return patients who have had an appointment
+    // or consultation with the requesting doctor.
+    const requestingUser = options.requestingUser;
+    if (requestingUser?.role === 'DOCTOR' && requestingUser?.referenceId) {
+      const doctorId = requestingUser.referenceId;
+      // Fetch all patientIds linked to this doctor via appointments or consultations
+      const [doctorAppointments, doctorConsultations] = await Promise.all([
+        prisma.appointment.findMany({
+          where: { doctorId },
+          select: { patientId: true }
+        }),
+        prisma.consultation.findMany({
+          where: { doctorId },
+          select: { patientId: true }
+        })
+      ]);
+      const allowedPatientIds = new Set([
+        ...doctorAppointments.map(a => a.patientId),
+        ...doctorConsultations.map(c => c.patientId)
+      ]);
+      patients = patients.filter(p => allowedPatientIds.has(p.patientId));
+    }
 
     if (query) {
       const q = query.toLowerCase().trim();
@@ -25,12 +53,75 @@ class PatientService {
     return patients;
   }
 
-  async getPatientById(patientId) {
+  async archivePatient(patientId) {
+    if (!patientId || typeof patientId !== 'string') {
+      throw { statusCode: 400, message: 'Valid Patient ID is required' };
+    }
+
+    const existing = await prisma.patient.findUnique({
+      where: { patientId }
+    });
+    if (!existing) {
+      throw { statusCode: 404, message: 'Patient not found' };
+    }
+
+    if (existing.status === 'Archived') {
+      return {
+        message: 'Patient is already archived',
+        patient: existing
+      };
+    }
+
+    const updatedPatient = await prisma.patient.update({
+      where: { patientId },
+      data: { status: 'Archived' }
+    });
+
+    // Safely cancel pending future appointments to prevent stale bookings
+    await prisma.appointment.updateMany({
+      where: {
+        patientId,
+        status: { in: ['Scheduled', 'Confirmed', 'Pending'] }
+      },
+      data: { status: 'Cancelled' }
+    }).catch(err => console.warn('[PatientService] Note on cancelling appointments for archived patient:', err.message));
+
+    // Audit log
+    await db.logAuditAction({
+      action: 'PATIENT_ARCHIVED',
+      resourceType: 'PATIENT',
+      resourceId: patientId,
+      patientId: patientId,
+      details: `Patient archived: ${existing.name} (${patientId}). Historical clinical and billing records preserved.`
+    }).catch(err => console.warn('[PatientService] Note writing audit log:', err.message));
+
+    return {
+      message: 'Patient archived successfully',
+      patient: updatedPatient
+    };
+  }
+
+  async getPatientById(patientId, requestingUser = null) {
     const patient = await prisma.patient.findUnique({
       where: { patientId }
     });
     if (!patient) {
       throw { statusCode: 404, message: 'Patient not found' };
+    }
+
+    // Doctor-scoped access: verify this doctor has an appointment or consultation with the patient
+    if (requestingUser?.role === 'DOCTOR' && requestingUser?.referenceId) {
+      const doctorId = requestingUser.referenceId;
+      const [appointment, consultation] = await Promise.all([
+        prisma.appointment.findFirst({ where: { patientId, doctorId } }),
+        prisma.consultation.findFirst({ where: { patientId, doctorId } })
+      ]);
+      if (!appointment && !consultation) {
+        throw {
+          statusCode: 403,
+          message: 'Access denied. This patient is not assigned to your practice.'
+        };
+      }
     }
 
     // Attach complete medical history directly from SQLite relations
