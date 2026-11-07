@@ -160,17 +160,19 @@ const ListManagementPage = () => {
     {
       header: 'Actions',
       render: (row) => (
-        <div style={{ display: 'flex', gap: '6px' }}>
+        <div className="table-actions">
           <button
+            type="button"
             onClick={() => handleOpenEdit(row)}
             className="btn btn-secondary btn-sm"
             style={{ padding: '4px 8px' }}
             title="Edit Procedure"
           >
-            <Edit size={14} />
+            <Edit size={14} /> Edit
           </button>
           {row.status === 'Active' && (
             <button
+              type="button"
               onClick={() => {
                 setProcedureToDelete(row);
                 setDeleteConfirmOpen(true);

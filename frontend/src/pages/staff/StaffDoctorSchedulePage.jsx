@@ -68,7 +68,7 @@ const StaffDoctorSchedulePage = () => {
       </div>
 
       {/* DOCTORS SCHEDULE CARDS */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 'var(--spacing-md)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))', gap: 'var(--spacing-md)' }}>
         {schedules.map((doc) => (
           <div
             key={doc.doctorId}

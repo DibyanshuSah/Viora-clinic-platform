@@ -4,6 +4,7 @@
   --bg-surface: #FFFFFF;
   --bg-sidebar: #0F172A;
   --border-subtle: #E2E8F0;
+  --border-focus: #CBD5E1;
 
   /* TYPOGRAPHY */
   --text-main: #0F172A;
@@ -11,36 +12,43 @@
   --text-muted: #94A3B8;
   --text-inverse: #FFFFFF;
 
-  /* ADMIN ROLE */
+  /* ADMIN ROLE (Indigo Theme) */
   --role-admin-primary: #4F46E5;
   --role-admin-hover: #4338CA;
   --role-admin-bg: #EEF2FF;
+  --role-admin-border: #C7D2FE;
 
-  /* DOCTOR ROLE */
+  /* DOCTOR ROLE (Sky / Blue Theme) */
   --role-doctor-primary: #0284C7;
   --role-doctor-hover: #0369A1;
   --role-doctor-bg: #E0F2FE;
+  --role-doctor-border: #BAE6FD;
 
-  /* STAFF ROLE */
+  /* STAFF ROLE (Teal Theme) */
   --role-staff-primary: #0D9488;
   --role-staff-hover: #0F766E;
   --role-staff-bg: #CCFBF1;
+  --role-staff-border: #99F6E4;
 
   /* CLINICAL STATUS */
   --status-available-text: #16A34A;
   --status-available-bg: #DCFCE7;
+  --status-available-border: #86EFAC;
   --status-paused-text: #D97706;
   --status-paused-bg: #FEF3C7;
+  --status-paused-border: #FDE68A;
   --status-active-text: #2563EB;
   --status-active-bg: #DBEAFE;
+  --status-active-border: #BFDBFE;
 
   /* DANGER / DELETE */
   --status-danger-text: #DC2626;
   --status-danger-bg: #FEE2E2;
+  --status-danger-border: #FECACA;
 
   /* TYPOGRAPHY FAMILY */
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
 
   /* SPACING SYSTEM (8px based) */
   --spacing-xxs: 2px;
@@ -51,6 +59,13 @@
   --spacing-xl: 32px;
   --spacing-2xl: 48px;
 
+  /* COMPONENT METRICS */
+  --input-height: 40px;
+  --input-height-sm: 34px;
+  --btn-height-sm: 32px;
+  --btn-height-md: 40px;
+  --btn-height-lg: 48px;
+
   /* BORDER RADIUS */
   --radius-xs: 4px;
   --radius-sm: 8px;
@@ -59,13 +74,14 @@
   --radius-full: 9999px;
 
   /* SHADOWS */
-  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
   --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.03);
   --shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.05);
 
   /* SIDEBAR & HEADER METRICS */
-  --sidebar-width: 260px;
+  --sidebar-width: 250px;
   --sidebar-collapsed-width: 72px;
   --header-height: 64px;
   --transition-fast: 150ms ease;

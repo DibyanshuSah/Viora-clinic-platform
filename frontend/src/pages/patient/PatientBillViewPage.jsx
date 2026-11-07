@@ -269,9 +269,20 @@ const PatientBillViewPage = () => {
               </div>
 
               <div style={{ marginTop: '12px', fontSize: '0.78rem', color: '#475569', lineHeight: 1.5 }}>
-                <div>{clinic.address}</div>
-                <div>{clinic.city}, {clinic.state} - {clinic.pinCode}</div>
-                <div>Ph: {clinic.contactNumber} | Email: {clinic.email}</div>
+                {clinic?.address && <div>{clinic.address}</div>}
+                {(clinic?.city || clinic?.state || clinic?.pinCode) && (
+                  <div>
+                    {[clinic?.city, clinic?.state].filter(Boolean).join(', ')}
+                    {clinic?.pinCode ? ` - ${clinic.pinCode}` : ''}
+                  </div>
+                )}
+                {(clinic?.contactNumber || clinic?.email) && (
+                  <div>
+                    {clinic?.contactNumber ? `Ph: ${clinic.contactNumber}` : ''}
+                    {clinic?.contactNumber && clinic?.email ? ' | ' : ''}
+                    {clinic?.email ? `Email: ${clinic.email}` : ''}
+                  </div>
+                )}
               </div>
             </div>
 

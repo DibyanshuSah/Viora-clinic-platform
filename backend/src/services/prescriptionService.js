@@ -3,11 +3,16 @@ const idGenerator = require('../utils/idGenerator');
 const { safeParse, safeStringify } = require('../utils/jsonUtils');
 
 class PrescriptionService {
-  async getPrescriptions(filters = {}) {
+  async getPrescriptions(filters = {}, requestingUser = null) {
     const { patientId, doctorId } = filters;
     const where = {};
     if (patientId) where.patientId = patientId;
     if (doctorId) where.doctorId = doctorId;
+
+    // Doctor-scoped access: automatically restrict to their own prescriptions
+    if (requestingUser?.role === 'DOCTOR' && requestingUser?.referenceId) {
+      where.doctorId = requestingUser.referenceId;
+    }
 
     const [prescriptions, patients, doctors, clinic] = await Promise.all([
       prisma.prescription.findMany({ where, orderBy: { createdAt: 'desc' } }),
@@ -37,12 +42,22 @@ class PrescriptionService {
     });
   }
 
-  async getPrescriptionById(prescriptionId) {
+  async getPrescriptionById(prescriptionId, requestingUser = null) {
     const pr = await prisma.prescription.findUnique({
       where: { prescriptionId }
     });
     if (!pr) {
       throw { statusCode: 404, message: 'Prescription not found' };
+    }
+
+    // Doctor-scoped access: a doctor may only retrieve their own prescriptions
+    if (requestingUser?.role === 'DOCTOR' && requestingUser?.referenceId) {
+      if (pr.doctorId !== requestingUser.referenceId) {
+        throw {
+          statusCode: 403,
+          message: 'Access denied. This prescription belongs to a different doctor.'
+        };
+      }
     }
 
     const [patient, doctor, clinic] = await Promise.all([

@@ -298,7 +298,7 @@ const DoctorConsultationPage = () => {
             disabled={saving}
             title="Save clinical records & prescription; shows In Consultation on Staff portal"
           >
-            <Save size={15} /> {saving ? 'Saving...' : 'Save Consultant'}
+            <Save size={15} /> {saving ? 'Saving...' : 'Save Consultation'}
           </button>
         </div>
       </div>

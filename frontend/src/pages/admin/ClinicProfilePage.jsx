@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { Building2, Save, Upload, Trash2, Image, CheckCircle2, Globe, Phone, Mail, FileText, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Building2, Save, Upload, Trash2, Image, CheckCircle2, Globe, Phone, Mail, FileText, RotateCcw } from 'lucide-react';
 import { useClinic } from '../../context/ClinicContext';
 import { useToast } from '../../context/ToastContext';
 import { FormInput } from '../../components/common/FormInput';
@@ -10,24 +10,47 @@ const ClinicProfilePage = () => {
   const fileInputRef = useRef(null);
 
   const [formData, setFormData] = useState({
-    clinicName: clinic.clinicName || 'VIORA',
-    tagline: clinic.tagline || 'Advanced Clinic & Healthcare Centre',
-    logoUrl: clinic.logoUrl || '',
-    address: clinic.address || '',
-    city: clinic.city || '',
-    state: clinic.state || '',
-    pinCode: clinic.pinCode || '',
-    contactNumber: clinic.contactNumber || '',
-    email: clinic.email || '',
-    website: clinic.website || '',
-    registrationNumber: clinic.registrationNumber || '',
-    gstNumber: clinic.gstNumber || '',
-    openingTime: clinic.openingTime || '08:00 AM',
-    closingTime: clinic.closingTime || '08:00 PM',
-    currency: '₹'
+    clinicName: clinic?.clinicName || 'VIORA',
+    tagline: clinic?.tagline || '',
+    logoUrl: clinic?.logoUrl || '',
+    address: clinic?.address || '',
+    city: clinic?.city || '',
+    state: clinic?.state || '',
+    pinCode: clinic?.pinCode || '',
+    contactNumber: clinic?.contactNumber || '',
+    email: clinic?.email || '',
+    website: clinic?.website || '',
+    registrationNumber: clinic?.registrationNumber || '',
+    gstNumber: clinic?.gstNumber || '',
+    openingTime: clinic?.openingTime || '08:00 AM',
+    closingTime: clinic?.closingTime || '08:00 PM',
+    currency: clinic?.currency || '₹'
   });
   const [saving, setSaving] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  // Sync state whenever clinic profile loads/updates from backend
+  useEffect(() => {
+    if (clinic) {
+      setFormData({
+        clinicName: clinic.clinicName || 'VIORA',
+        tagline: clinic.tagline || '',
+        logoUrl: clinic.logoUrl || '',
+        address: clinic.address || '',
+        city: clinic.city || '',
+        state: clinic.state || '',
+        pinCode: clinic.pinCode || '',
+        contactNumber: clinic.contactNumber || '',
+        email: clinic.email || '',
+        website: clinic.website || '',
+        registrationNumber: clinic.registrationNumber || '',
+        gstNumber: clinic.gstNumber || '',
+        openingTime: clinic.openingTime || '08:00 AM',
+        closingTime: clinic.closingTime || '08:00 PM',
+        currency: clinic.currency || '₹'
+      });
+    }
+  }, [clinic]);
 
   // Handle local image file upload & convert to base64 Data URL
   const handleImageFileChange = (e) => {
@@ -73,6 +96,32 @@ const ClinicProfilePage = () => {
     showToast('Image removed. Default brand badge will be used.', 'info');
   };
 
+  const handleCancel = () => {
+    if (clinic) {
+      setFormData({
+        clinicName: clinic.clinicName || 'VIORA',
+        tagline: clinic.tagline || '',
+        logoUrl: clinic.logoUrl || '',
+        address: clinic.address || '',
+        city: clinic.city || '',
+        state: clinic.state || '',
+        pinCode: clinic.pinCode || '',
+        contactNumber: clinic.contactNumber || '',
+        email: clinic.email || '',
+        website: clinic.website || '',
+        registrationNumber: clinic.registrationNumber || '',
+        gstNumber: clinic.gstNumber || '',
+        openingTime: clinic.openingTime || '08:00 AM',
+        closingTime: clinic.closingTime || '08:00 PM',
+        currency: clinic.currency || '₹'
+      });
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      showToast('Unsaved changes discarded', 'info');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -89,28 +138,28 @@ const ClinicProfilePage = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
       <div className="v-card">
+        {/* HEADER (Informational only — action buttons placed at bottom of form) */}
         <div className="v-card-header">
           <div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0 }}>
-              VIORA Clinic Profile & Official Brand Image
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Building2 size={22} color="var(--role-admin-primary)" />
+              VIORA Clinic Profile & Official Brand Identity
             </h2>
             <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
-              Upload clinic logo picture and customize official metadata. Changes dynamically propagate to Sidebar, Header, Invoices, and Prescriptions (RX).
+              Configure your clinic branding, contact points, location, and regulatory details. Saved changes update invoices, prescriptions, and navigation headers.
             </p>
           </div>
-          <button onClick={handleSubmit} className="btn btn-admin" disabled={saving}>
-            <Save size={16} /> {saving ? 'Saving...' : 'Save Profile Changes'}
-          </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* IMAGE UPLOAD & LIVE PREVIEW SECTION */}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+          
+          {/* SECTION 1: PROFILE INFORMATION */}
           <div>
-            <h4 style={{ fontSize: '0.9rem', color: 'var(--role-admin-primary)', marginBottom: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '4px' }}>
-              1. Clinic Logo / Picture Upload
+            <h4 className="form-section-title">
+              1. Profile Information & Brand Identity
             </h4>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '20px', alignItems: 'start' }}>
+            <div className="grid-two-column" style={{ marginBottom: '16px' }}>
               {/* DRAG & DROP UPLOAD BOX */}
               <div
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -243,7 +292,7 @@ const ClinicProfilePage = () => {
                       VIORA
                     </h3>
                     <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '2px 0 4px 0' }}>
-                      {formData.tagline || 'Advanced Clinic & Healthcare Centre'}
+                      {formData.tagline || 'Clinic Tagline'}
                     </p>
                     <span
                       style={{
@@ -261,13 +310,7 @@ const ClinicProfilePage = () => {
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* BASIC CLINIC INFORMATION */}
-          <div>
-            <h4 style={{ fontSize: '0.9rem', color: 'var(--role-admin-primary)', marginBottom: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '4px' }}>
-              2. Basic Identity
-            </h4>
             <div className="form-grid-2">
               <FormInput
                 label="Clinic Name"
@@ -281,23 +324,55 @@ const ClinicProfilePage = () => {
                 name="tagline"
                 value={formData.tagline}
                 onChange={(e) => setFormData({ ...formData, tagline: e.target.value })}
-                placeholder="e.g. Advanced Clinic & Healthcare Centre"
+                placeholder="Enter clinic tagline"
               />
             </div>
           </div>
 
-          {/* ADDRESS DETAILS */}
+          {/* SECTION 2: CONTACT INFORMATION */}
           <div>
-            <h4 style={{ fontSize: '0.9rem', color: 'var(--role-admin-primary)', marginBottom: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '4px' }}>
+            <h4 className="form-section-title">
+              2. Contact Information
+            </h4>
+            <div className="form-grid-3">
+              <FormInput
+                label="Contact Phone"
+                name="contactNumber"
+                value={formData.contactNumber}
+                onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })}
+                placeholder="Enter contact phone"
+              />
+              <FormInput
+                label="Email Address"
+                name="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                placeholder="Enter clinic email"
+              />
+              <FormInput
+                label="Website URL"
+                name="website"
+                value={formData.website}
+                onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                placeholder="Enter website URL"
+              />
+            </div>
+          </div>
+
+          {/* SECTION 3: PHYSICAL LOCATION */}
+          <div>
+            <h4 className="form-section-title">
               3. Physical Location
             </h4>
             <div className="form-group">
-              <label className="form-label">Street Address</label>
+              <label className="form-label" htmlFor="clinic-address">Street Address</label>
               <input
+                id="clinic-address"
                 className="form-input"
                 value={formData.address}
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                placeholder="e.g. 42, Health Crest Boulevard, Medical Enclave, 4th Block, Koramangala"
+                placeholder="Enter clinic street address"
               />
             </div>
 
@@ -307,78 +382,89 @@ const ClinicProfilePage = () => {
                 name="city"
                 value={formData.city}
                 onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                placeholder="Enter city"
               />
               <FormInput
                 label="State"
                 name="state"
                 value={formData.state}
                 onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                placeholder="Enter state"
               />
               <FormInput
                 label="Postal PIN Code"
                 name="pinCode"
                 value={formData.pinCode}
                 onChange={(e) => setFormData({ ...formData, pinCode: e.target.value })}
+                placeholder="Enter PIN code"
               />
             </div>
           </div>
 
-          {/* CONTACT & REGISTRATION */}
+          {/* SECTION 4: OTHER PROFILE SETTINGS */}
           <div>
-            <h4 style={{ fontSize: '0.9rem', color: 'var(--role-admin-primary)', marginBottom: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '4px' }}>
-              4. Contact, Compliance & Operating Hours
+            <h4 className="form-section-title">
+              4. Other Profile Settings & Compliance
             </h4>
-            <div className="form-grid-3">
-              <FormInput
-                label="Contact Phone"
-                name="contactNumber"
-                value={formData.contactNumber}
-                onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })}
-                placeholder="+91 80 4920 8800"
-              />
-              <FormInput
-                label="Email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="contact@vioraclinic.com"
-              />
-              <FormInput
-                label="Website"
-                name="website"
-                value={formData.website}
-                onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                placeholder="https://vioracare.in"
-              />
-            </div>
-
             <div className="form-grid-4">
               <FormInput
                 label="Medical Registration No."
                 name="registrationNumber"
                 value={formData.registrationNumber}
                 onChange={(e) => setFormData({ ...formData, registrationNumber: e.target.value })}
+                placeholder="Enter registration number"
               />
               <FormInput
                 label="GSTIN Number"
                 name="gstNumber"
                 value={formData.gstNumber}
                 onChange={(e) => setFormData({ ...formData, gstNumber: e.target.value })}
+                placeholder="Enter GSTIN number"
               />
               <FormInput
                 label="Clinic Opening Time"
                 name="openingTime"
                 value={formData.openingTime}
                 onChange={(e) => setFormData({ ...formData, openingTime: e.target.value })}
+                placeholder="e.g. 08:00 AM"
               />
               <FormInput
                 label="Clinic Closing Time"
                 name="closingTime"
                 value={formData.closingTime}
                 onChange={(e) => setFormData({ ...formData, closingTime: e.target.value })}
+                placeholder="e.g. 08:00 PM"
               />
             </div>
+          </div>
+
+          {/* BOTTOM FORM ACTIONS */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: '12px',
+              paddingTop: '20px',
+              borderTop: '1px solid var(--border-subtle)',
+              flexWrap: 'wrap'
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="btn btn-secondary"
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-admin"
+              disabled={saving}
+            >
+              <Save size={16} /> {saving ? 'Saving...' : 'Save Changes'}
+            </button>
           </div>
         </form>
       </div>

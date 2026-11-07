@@ -13,12 +13,14 @@ class StaffService {
     };
   }
 
-  async getAllStaff() {
+  async getAllStaff(options = {}) {
+    const where = options.includeInactive ? {} : { status: 'Active' };
     const staffMembers = await prisma.staff.findMany({
+      where,
       orderBy: { createdAt: 'asc' }
     });
 
-    const userIds = staffMembers.map(s => s.userId);
+    const userIds = staffMembers.map(s => s.userId).filter(Boolean);
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } }
     });
@@ -147,13 +149,18 @@ class StaffService {
       });
 
       let uUser = null;
-      if (Object.keys(updateUserPayload).length > 0 && st.userId) {
-        uUser = await tx.user.update({
-          where: { id: st.userId },
-          data: updateUserPayload
-        });
-      } else if (st.userId) {
-        uUser = await tx.user.findUnique({ where: { id: st.userId } });
+      if (st.userId) {
+        const linkedUser = await tx.user.findUnique({ where: { id: st.userId } });
+        if (linkedUser && Object.keys(updateUserPayload).length > 0) {
+          uUser = await tx.user.update({
+            where: { id: st.userId },
+            data: updateUserPayload
+          });
+        } else if (linkedUser) {
+          uUser = linkedUser;
+        } else {
+          console.warn(`[StaffService] Warning: Staff ${staffId} references missing User ID ${st.userId}. User record not updated.`);
+        }
       }
 
       return { updatedStaff: uStaff, updatedUser: uUser };
@@ -170,6 +177,8 @@ class StaffService {
       throw { statusCode: 404, message: 'Staff member not found' };
     }
 
+    let linkedUserFound = false;
+
     await prisma.$transaction(async (tx) => {
       await tx.staff.update({
         where: { staffId },
@@ -177,14 +186,33 @@ class StaffService {
       });
 
       if (st.userId) {
-        await tx.user.update({
-          where: { id: st.userId },
-          data: { status: 'Inactive' }
+        const linkedUser = await tx.user.findUnique({
+          where: { id: st.userId }
         });
+
+        if (linkedUser) {
+          linkedUserFound = true;
+          await tx.user.update({
+            where: { id: st.userId },
+            data: { status: 'Inactive' }
+          });
+        } else {
+          console.warn(`[StaffService] Orphaned user reference detected: Staff ${staffId} references missing User ID "${st.userId}". Staff record deactivated, orphaned reference preserved without failure.`);
+        }
       }
     });
 
-    return { message: 'Staff member deactivated successfully' };
+    const response = {
+      message: 'Staff member deactivated successfully',
+      staffId,
+      status: 'Inactive'
+    };
+
+    if (st.userId && !linkedUserFound) {
+      response.warning = `Staff record references user ID "${st.userId}" which does not exist in the users table. Staff was deactivated successfully.`;
+    }
+
+    return response;
   }
 }
 

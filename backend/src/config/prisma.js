@@ -14,7 +14,12 @@ if (!rawUrl || rawUrl.trim() === '') {
 let databaseUrl = rawUrl;
 
 // Ensure relative SQLite URLs are always resolved relative to backend/prisma
-if (rawUrl === 'file:./viora.db' || rawUrl === 'file:./test_viora.db') {
+if (
+  rawUrl === 'file:./viora.db' ||
+  rawUrl === 'file:./prisma/viora.db' ||
+  rawUrl === 'file:./test_viora.db' ||
+  rawUrl === 'file:./prisma/test_viora.db'
+) {
   const targetPath = rawUrl.includes('test_viora.db') ? TEST_DB_PATH : PROD_DB_PATH;
   databaseUrl = `file:${targetPath.replace(/\\/g, '/')}`;
 } else if (rawUrl.startsWith('file:') && !rawUrl.startsWith('file:/') && !rawUrl.match(/^file:[a-zA-Z]:/)) {

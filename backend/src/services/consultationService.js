@@ -3,13 +3,18 @@ const idGenerator = require('../utils/idGenerator');
 const { safeParse, safeStringify } = require('../utils/jsonUtils');
 
 class ConsultationService {
-  async getConsultations(filters = {}, userRole = 'STAFF') {
+  async getConsultations(filters = {}, userRole = 'STAFF', requestingUser = null) {
     const { patientId, doctorId, appointmentId } = filters;
     const whereClause = {};
 
     if (patientId) whereClause.patientId = patientId;
     if (doctorId) whereClause.doctorId = doctorId;
     if (appointmentId) whereClause.appointmentId = appointmentId;
+
+    // Doctor-scoped access: automatically restrict to their own doctorId
+    if (requestingUser?.role === 'DOCTOR' && requestingUser?.referenceId) {
+      whereClause.doctorId = requestingUser.referenceId;
+    }
 
     const [consultations, patients, doctors, prescriptions] = await Promise.all([
       prisma.consultation.findMany({
@@ -82,12 +87,22 @@ class ConsultationService {
     return mapped;
   }
 
-  async getConsultationById(consultationId, userRole = 'STAFF') {
+  async getConsultationById(consultationId, userRole = 'STAFF', requestingUser = null) {
     const c = await prisma.consultation.findUnique({
       where: { consultationId }
     });
     if (!c) {
       throw { statusCode: 404, message: 'Consultation record not found' };
+    }
+
+    // Doctor-scoped access: a doctor may only retrieve their own consultations
+    if (requestingUser?.role === 'DOCTOR' && requestingUser?.referenceId) {
+      if (c.doctorId !== requestingUser.referenceId) {
+        throw {
+          statusCode: 403,
+          message: 'Access denied. This consultation record belongs to a different doctor.'
+        };
+      }
     }
 
     const [patient, doctor, prescription] = await Promise.all([
@@ -306,7 +321,7 @@ class ConsultationService {
     });
   }
 
-  async getPatientHistory(patientId, userRole = 'STAFF') {
+  async getPatientHistory(patientId, userRole = 'STAFF', requestingUser = null) {
     const patient = await prisma.patient.findUnique({
       where: { patientId }
     });
@@ -314,8 +329,23 @@ class ConsultationService {
       throw { statusCode: 404, message: 'Patient not found' };
     }
 
+    // Doctor-scoped access: verify this doctor has a clinical relationship with the patient
+    if (requestingUser?.role === 'DOCTOR' && requestingUser?.referenceId) {
+      const doctorId = requestingUser.referenceId;
+      const [appointment, consultation] = await Promise.all([
+        prisma.appointment.findFirst({ where: { patientId, doctorId } }),
+        prisma.consultation.findFirst({ where: { patientId, doctorId } })
+      ]);
+      if (!appointment && !consultation) {
+        throw {
+          statusCode: 403,
+          message: 'Access denied. This patient is not assigned to your practice.'
+        };
+      }
+    }
+
     const [consultations, rawPrescriptions, rawAppointments, doctors] = await Promise.all([
-      this.getConsultations({ patientId }, userRole),
+      this.getConsultations({ patientId }, userRole, requestingUser),
       prisma.prescription.findMany({ where: { patientId }, orderBy: { createdAt: 'desc' } }),
       prisma.appointment.findMany({ where: { patientId }, orderBy: [{ date: 'desc' }, { time: 'desc' }] }),
       prisma.doctor.findMany()

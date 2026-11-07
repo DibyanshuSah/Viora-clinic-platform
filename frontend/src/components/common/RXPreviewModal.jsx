@@ -184,10 +184,15 @@ const RXPreviewModal = ({ prescription, consultation, onClose, onPrint }) => {
             </div>
 
             <div style={{ fontSize: '0.68rem', color: '#334155', lineHeight: 1.25 }}>
-              <div>{clinic?.address || '42, Health Crest Boulevard, Medical Enclave,'}</div>
-              <div>{clinic?.city && clinic?.pinCode ? `${clinic.city} - ${clinic.pinCode}` : '4th Block, Koramangala, Bengaluru - 560034'}</div>
+              {clinic?.address && <div>{clinic.address}</div>}
+              {(clinic?.city || clinic?.pinCode) && (
+                <div>
+                  {[clinic?.city, clinic?.state].filter(Boolean).join(', ')}
+                  {clinic?.pinCode ? ` - ${clinic.pinCode}` : ''}
+                </div>
+              )}
               <div style={{ marginTop: '1px', fontWeight: 500 }}>
-                {clinic?.contactNumber || '+91 90000 00000'} | {clinic?.email || 'contact@vioraclinic.com'}
+                {clinic?.contactNumber || ''}{clinic?.contactNumber && clinic?.email ? ' | ' : ''}{clinic?.email || ''}
               </div>
             </div>
           </div>

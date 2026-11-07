@@ -4,7 +4,7 @@ const { successResponse } = require('../utils/responseHandler');
 class PrescriptionController {
   async getPrescriptions(req, res, next) {
     try {
-      const list = await prescriptionService.getPrescriptions(req.query);
+      const list = await prescriptionService.getPrescriptions(req.query, req.user);
       return successResponse(res, 'Prescriptions retrieved successfully', list);
     } catch (err) {
       next(err);
@@ -13,7 +13,7 @@ class PrescriptionController {
 
   async getPrescriptionById(req, res, next) {
     try {
-      const prescription = await prescriptionService.getPrescriptionById(req.params.id);
+      const prescription = await prescriptionService.getPrescriptionById(req.params.id, req.user);
       return successResponse(res, 'Prescription retrieved successfully', prescription);
     } catch (err) {
       next(err);

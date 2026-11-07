@@ -7,9 +7,7 @@ import {
   IndianRupee,
   Activity,
   UserPlus,
-  ArrowUpRight,
-  Clock,
-  CheckCircle2
+  ArrowUpRight
 } from 'lucide-react';
 import { api } from '../../services/api';
 import StatCard from '../../components/common/StatCard';
@@ -62,16 +60,16 @@ const AdminDashboardPage = () => {
       {/* KPI METRIC CARDS */}
       <div className="stat-card-grid">
         <StatCard
-          label="Total Patients Today"
+          label="Patients Today"
           value={summary.patientsToday !== undefined ? summary.patientsToday : '0'}
-          subtext={`Total registered: ${summary.totalPatients || 0}`}
+          subtext={`Registered total: ${summary.totalPatients || 0}`}
           icon={Users}
           role="admin"
         />
         <StatCard
-          label="Doctors Available"
+          label="Doctors on Duty"
           value={activeDoctors.length}
-          subtext="Configured on clinical duty"
+          subtext="Active clinical roster"
           icon={Stethoscope}
           role="admin"
         />
@@ -83,28 +81,32 @@ const AdminDashboardPage = () => {
           role="admin"
         />
         <StatCard
-          label="Revenue Billed Today"
+          label="Gross Billed Today"
           value={`₹${(summary.revenueToday || 0).toLocaleString()}`}
-          subtext={`Clinic Share: ₹${(summary.totalClinicRevenue || 0).toLocaleString()}`}
+          subtext={`Clinic Net: ₹${(summary.totalClinicRevenue || 0).toLocaleString()}`}
           icon={IndianRupee}
           role="admin"
         />
       </div>
 
       {/* TWO-COLUMN GRID: REVENUE TIMELINE & DOCTOR AVAILABILITY */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 'var(--spacing-lg)' }}>
+      <div className="grid-two-column-split">
         {/* REVENUE OVERVIEW & TREND */}
         <div className="v-card">
           <div className="v-card-header">
-            <div className="v-card-title">
-              <Activity size={18} color="var(--role-admin-primary)" />
-              <span>Revenue Trend & Payout (7-Day Overview)</span>
+            <div>
+              <div className="v-card-title">
+                <Activity size={18} color="var(--role-admin-primary)" />
+                <span>Revenue Trend & Distribution</span>
+              </div>
+              <div className="v-card-subtitle">7-day financial snapshot</div>
             </div>
             <button
+              type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => navigate('/admin/analytics')}
             >
-              Detailed Analytics <ArrowUpRight size={14} />
+              Full Analytics <ArrowUpRight size={14} />
             </button>
           </div>
           <RevenueChart timeline={analytics?.timeline} breakdown={analytics?.breakdown} />
@@ -113,69 +115,82 @@ const AdminDashboardPage = () => {
         {/* CURRENT DOCTOR AVAILABILITY */}
         <div className="v-card">
           <div className="v-card-header">
-            <div className="v-card-title">
-              <Stethoscope size={18} color="var(--role-admin-primary)" />
-              <span>Doctor Availability & Roster</span>
+            <div>
+              <div className="v-card-title">
+                <Stethoscope size={18} color="var(--role-admin-primary)" />
+                <span>Doctor Roster</span>
+              </div>
+              <div className="v-card-subtitle">{doctors.length} configured physicians</div>
             </div>
             <button
+              type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => navigate('/admin/doctors')}
             >
-              Manage Doctors
+              Manage
             </button>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {doctors.map((doc) => {
-              const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-              const isWorkingToday = doc.workingDays?.includes(todayName);
-              return (
-                <div
-                  key={doc.doctorId}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 12px',
-                    backgroundColor: 'var(--bg-app)',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border-subtle)'
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.875rem' }}>{doc.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      {doc.specialization} &bull; {doc.workingHours?.start} - {doc.workingHours?.end}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {doctors.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                No doctors registered yet.
+              </div>
+            ) : (
+              doctors.map((doc) => {
+                const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+                const isWorkingToday = doc.workingDays?.includes(todayName);
+                return (
+                  <div
+                    key={doc.doctorId}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 12px',
+                      backgroundColor: 'var(--bg-app)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-subtle)',
+                      gap: '8px'
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.875rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {doc.name}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {doc.specialization} &bull; {doc.workingHours?.start} - {doc.workingHours?.end}
+                      </div>
+                    </div>
+                    <div>
+                      <StatusBadge status={isWorkingToday && doc.status === 'Active' ? 'Available' : 'Paused'} />
                     </div>
                   </div>
-                  <div>
-                    <StatusBadge status={isWorkingToday && doc.status === 'Active' ? 'Available' : 'Paused'} />
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
       </div>
 
       {/* TODAY'S APPOINTMENT QUEUE & RECENT PATIENTS */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 'var(--spacing-lg)' }}>
+      <div className="grid-two-column-split">
         {/* TODAY'S APPOINTMENTS TABLE */}
         <div className="v-card">
           <div className="v-card-header">
-            <div className="v-card-title">
-              <Calendar size={18} color="var(--role-admin-primary)" />
-              <span>Today's Clinic Queue & Appointments</span>
+            <div>
+              <div className="v-card-title">
+                <Calendar size={18} color="var(--role-admin-primary)" />
+                <span>Today's Appointment Queue</span>
+              </div>
+              <div className="v-card-subtitle">{appointments.length} patients scheduled</div>
             </div>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              {appointments.length} scheduled
-            </span>
           </div>
 
           <div className="table-container" style={{ border: 'none', boxShadow: 'none' }}>
             <table className="v-table">
               <thead>
                 <tr>
-                  <th>Queue #</th>
+                  <th style={{ width: '80px' }}>Queue</th>
                   <th>Patient</th>
                   <th>Doctor</th>
                   <th>Time</th>
@@ -186,7 +201,7 @@ const AdminDashboardPage = () => {
               <tbody>
                 {appointments.length === 0 ? (
                   <tr>
-                    <td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                    <td colSpan="6" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-muted)' }}>
                       No appointments scheduled for today.
                     </td>
                   </tr>
@@ -219,47 +234,60 @@ const AdminDashboardPage = () => {
         {/* RECENT PATIENT REGISTRATIONS */}
         <div className="v-card">
           <div className="v-card-header">
-            <div className="v-card-title">
-              <UserPlus size={18} color="var(--role-admin-primary)" />
-              <span>Recent Patient Registrations</span>
+            <div>
+              <div className="v-card-title">
+                <UserPlus size={18} color="var(--role-admin-primary)" />
+                <span>Recent Registrations</span>
+              </div>
+              <div className="v-card-subtitle">Latest enrolled patients</div>
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {patients.map((pat) => (
-              <div
-                key={pat.patientId}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '10px 12px',
-                  backgroundColor: 'var(--bg-app)',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--border-subtle)'
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.875rem' }}>{pat.name}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    {pat.age} yrs &bull; {pat.gender} &bull; {pat.phone}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {patients.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                No patients registered yet.
+              </div>
+            ) : (
+              patients.map((pat) => (
+                <div
+                  key={pat.patientId}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    backgroundColor: 'var(--bg-app)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    gap: '8px'
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.875rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {pat.name}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      {pat.age} yrs &bull; {pat.gender} &bull; {pat.phone}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        color: 'var(--role-admin-primary)',
+                        backgroundColor: 'var(--role-admin-bg)',
+                        border: '1px solid var(--role-admin-border)',
+                        padding: '2px 8px',
+                        borderRadius: '4px'
+                      }}
+                    >
+                      {pat.patientId}
+                    </span>
                   </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <span
-                    style={{
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      color: 'var(--role-admin-primary)',
-                      backgroundColor: 'var(--role-admin-bg)',
-                      padding: '2px 6px',
-                      borderRadius: '4px'
-                    }}
-                  >
-                    {pat.patientId}
-                  </span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>

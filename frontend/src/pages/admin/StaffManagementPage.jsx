@@ -38,7 +38,7 @@ const StaffManagementPage = () => {
   const fetchStaff = async () => {
     try {
       setLoading(true);
-      const res = await api.getStaff();
+      const res = await api.getStaff({ includeInactive: true });
       if (res.success) {
         setStaffList(res.data);
       }
@@ -186,17 +186,19 @@ const StaffManagementPage = () => {
     {
       header: 'Actions',
       render: (row) => (
-        <div style={{ display: 'flex', gap: '6px' }}>
+        <div className="table-actions">
           <button
+            type="button"
             onClick={() => handleOpenEdit(row)}
             className="btn btn-secondary btn-sm"
             style={{ padding: '4px 8px' }}
             title="Edit Staff Member"
           >
-            <Edit size={14} />
+            <Edit size={14} /> Edit
           </button>
           {row.status === 'Active' && (
             <button
+              type="button"
               onClick={() => {
                 setStaffToDelete(row);
                 setDeleteConfirmOpen(true);

@@ -4,7 +4,7 @@ const { successResponse } = require('../utils/responseHandler');
 class ConsultationController {
   async getConsultations(req, res, next) {
     try {
-      const list = await consultationService.getConsultations(req.query, req.user.role);
+      const list = await consultationService.getConsultations(req.query, req.user.role, req.user);
       return successResponse(res, 'Consultations retrieved successfully', list);
     } catch (err) {
       next(err);
@@ -13,7 +13,7 @@ class ConsultationController {
 
   async getConsultationById(req, res, next) {
     try {
-      const consultation = await consultationService.getConsultationById(req.params.id, req.user.role);
+      const consultation = await consultationService.getConsultationById(req.params.id, req.user.role, req.user);
       return successResponse(res, 'Consultation record retrieved successfully', consultation);
     } catch (err) {
       next(err);
@@ -31,7 +31,7 @@ class ConsultationController {
 
   async getPatientHistory(req, res, next) {
     try {
-      const history = await consultationService.getPatientHistory(req.params.patientId, req.user.role);
+      const history = await consultationService.getPatientHistory(req.params.patientId, req.user.role, req.user);
       return successResponse(res, 'Patient history retrieved successfully', history);
     } catch (err) {
       next(err);

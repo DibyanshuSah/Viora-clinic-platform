@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import AppSidebar from '../components/layout/AppSidebar';
 import TopHeader from '../components/layout/TopHeader';
@@ -6,8 +6,18 @@ import { useAuth } from '../context/AuthContext';
 
 const AdminLayout = () => {
   const { isAuthenticated, role, loading } = useAuth();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);   // desktop: open by default
+  const [mobileOpen, setMobileOpen] = useState(false);    // mobile drawer
   const location = useLocation();
+
+  const handleMenuClick = useCallback(() => {
+    // On mobile (<=768px) toggle the mobile drawer; on desktop collapse the sidebar
+    if (window.innerWidth <= 768) {
+      setMobileOpen(prev => !prev);
+    } else {
+      setSidebarOpen(prev => !prev);
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -22,7 +32,6 @@ const AdminLayout = () => {
   }
 
   if (role !== 'ADMIN') {
-    // Redirect to respective role dashboard
     if (role === 'DOCTOR') return <Navigate to="/doctor/appointments" replace />;
     if (role === 'STAFF') return <Navigate to="/staff/dashboard" replace />;
     return <Navigate to="/login" replace />;
@@ -42,7 +51,7 @@ const AdminLayout = () => {
   };
 
   return (
-    <div className="app-container role-admin">
+    <div className={`app-container role-admin${sidebarOpen ? '' : ' sidebar-collapsed'}`}>
       <AppSidebar
         mobileOpen={mobileOpen}
         setMobileOpen={setMobileOpen}
@@ -51,7 +60,8 @@ const AdminLayout = () => {
         <TopHeader
           title={getPageTitle()}
           breadcrumb={['Administration']}
-          onMenuClick={() => setMobileOpen(true)}
+          onMenuClick={handleMenuClick}
+          sidebarOpen={sidebarOpen}
         />
         <main className="page-body">
           <Outlet />

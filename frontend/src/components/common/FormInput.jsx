@@ -28,7 +28,13 @@ export const FormInput = ({
           <Icon
             size={16}
             color="var(--text-muted)"
-            style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }}
+            style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              pointerEvents: 'none'
+            }}
           />
         )}
         <input
@@ -45,12 +51,12 @@ export const FormInput = ({
           step={step}
           className="form-input"
           style={{
-            paddingLeft: Icon ? '34px' : '12px',
+            paddingLeft: Icon ? '36px' : '12px',
             borderColor: error ? 'var(--status-danger-text)' : undefined
           }}
         />
       </div>
-      {error && <span style={{ fontSize: '0.75rem', color: 'var(--status-danger-text)' }}>{error}</span>}
+      {error && <span style={{ fontSize: '0.75rem', color: 'var(--status-danger-text)', fontWeight: 500 }}>{error}</span>}
       {helperText && !error && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{helperText}</span>}
     </div>
   );
@@ -78,7 +84,7 @@ export const SelectInput = ({
       <select
         id={name}
         name={name}
-        value={value}
+        value={value !== undefined && value !== null ? value : ''}
         onChange={onChange}
         required={required}
         disabled={disabled}
@@ -98,7 +104,46 @@ export const SelectInput = ({
           );
         })}
       </select>
-      {error && <span style={{ fontSize: '0.75rem', color: 'var(--status-danger-text)' }}>{error}</span>}
+      {error && <span style={{ fontSize: '0.75rem', color: 'var(--status-danger-text)', fontWeight: 500 }}>{error}</span>}
+      {helperText && !error && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{helperText}</span>}
+    </div>
+  );
+};
+
+export const TextareaInput = ({
+  label,
+  name,
+  value,
+  onChange,
+  placeholder,
+  rows = 3,
+  required = false,
+  disabled = false,
+  error,
+  helperText
+}) => {
+  return (
+    <div className="form-group">
+      {label && (
+        <label className="form-label" htmlFor={name}>
+          {label} {required && <span className="required">*</span>}
+        </label>
+      )}
+      <textarea
+        id={name}
+        name={name}
+        rows={rows}
+        value={value !== undefined && value !== null ? value : ''}
+        onChange={onChange}
+        placeholder={placeholder}
+        required={required}
+        disabled={disabled}
+        className="form-textarea"
+        style={{
+          borderColor: error ? 'var(--status-danger-text)' : undefined
+        }}
+      />
+      {error && <span style={{ fontSize: '0.75rem', color: 'var(--status-danger-text)', fontWeight: 500 }}>{error}</span>}
       {helperText && !error && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{helperText}</span>}
     </div>
   );

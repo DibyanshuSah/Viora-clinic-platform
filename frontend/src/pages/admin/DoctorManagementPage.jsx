@@ -46,7 +46,7 @@ const DoctorManagementPage = () => {
   const fetchDoctors = async () => {
     try {
       setLoading(true);
-      const res = await api.getDoctors();
+      const res = await api.getDoctors({ includeInactive: true });
       if (res.success) {
         setDoctors(res.data);
       }
@@ -244,17 +244,19 @@ const DoctorManagementPage = () => {
     {
       header: 'Actions',
       render: (row) => (
-        <div style={{ display: 'flex', gap: '6px' }}>
+        <div className="table-actions">
           <button
+            type="button"
             onClick={() => handleOpenEditModal(row)}
             className="btn btn-secondary btn-sm"
             style={{ padding: '4px 8px' }}
             title="Edit Doctor & Pricing"
           >
-            <Edit size={14} />
+            <Edit size={14} /> Edit
           </button>
           {row.status === 'Active' && (
             <button
+              type="button"
               onClick={() => {
                 setDoctorToDelete(row);
                 setDeleteConfirmOpen(true);
@@ -325,7 +327,7 @@ const DoctorManagementPage = () => {
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* SECTION 1: PERSONAL & PROFESSIONAL */}
           <div>
-            <h4 style={{ fontSize: '0.9rem', color: 'var(--role-admin-primary)', marginBottom: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '4px' }}>
+            <h4 className="form-section-title">
               1. Professional & Contact Information
             </h4>
             <div className="form-grid-3">
@@ -403,7 +405,7 @@ const DoctorManagementPage = () => {
 
           {/* SECTION 2: AUTHENTICATION CREDENTIALS */}
           <div>
-            <h4 style={{ fontSize: '0.9rem', color: 'var(--role-admin-primary)', marginBottom: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '4px' }}>
+            <h4 className="form-section-title">
               2. Doctor Portal Credentials
             </h4>
             <div className="form-grid-2">
@@ -430,7 +432,7 @@ const DoctorManagementPage = () => {
 
           {/* SECTION 3: CONSULTATION PRICING & CUTS */}
           <div>
-            <h4 style={{ fontSize: '0.9rem', color: 'var(--role-admin-primary)', marginBottom: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '4px' }}>
+            <h4 className="form-section-title">
               3. Consultation Fee & Revenue Split
             </h4>
             <div className="form-grid-3">
@@ -462,7 +464,7 @@ const DoctorManagementPage = () => {
 
           {/* SECTION 4: WORKING SCHEDULE & AVAILABILITY */}
           <div>
-            <h4 style={{ fontSize: '0.9rem', color: 'var(--role-admin-primary)', marginBottom: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '4px' }}>
+            <h4 className="form-section-title">
               4. Working Days, Shift Hours & Break Times
             </h4>
             <div style={{ marginBottom: '12px' }}>

@@ -65,8 +65,8 @@ const StaffBillingPage = () => {
     phone: '',
     email: '',
     address: '',
-    city: 'Bengaluru',
-    state: 'Karnataka',
+    city: '',
+    state: '',
     pinCode: '',
     allergies: 'None',
     medicalHistory: 'None'
@@ -93,9 +93,9 @@ const StaffBillingPage = () => {
         phone: existing.patientPhone || '',
         email: existing.patientEmail || '',
         address: existing.patientAddress || '',
-        city: 'Bengaluru',
-        state: 'Karnataka',
-        pinCode: '',
+        city: existing.patientCity || '',
+        state: existing.patientState || '',
+        pinCode: existing.patientPinCode || '',
         allergies: existing.allergies || 'None',
         medicalHistory: existing.medicalHistory || 'None'
       });
@@ -113,8 +113,8 @@ const StaffBillingPage = () => {
           phone: pat.phone || '',
           email: pat.email || '',
           address: pat.address || '',
-          city: pat.city || 'Bengaluru',
-          state: pat.state || 'Karnataka',
+          city: pat.city || '',
+          state: pat.state || '',
           pinCode: pat.pinCode || '',
           allergies: pat.allergies || 'None',
           medicalHistory: pat.medicalHistory || 'None'
@@ -159,9 +159,9 @@ const StaffBillingPage = () => {
       phone: bill.patientPhone || '',
       email: bill.patientEmail || '',
       address: bill.patientAddress || '',
-      city: 'Bengaluru',
-      state: 'Karnataka',
-      pinCode: '',
+      city: bill.patientCity || '',
+      state: bill.patientState || '',
+      pinCode: bill.patientPinCode || '',
       allergies: bill.allergies || 'None',
       medicalHistory: bill.medicalHistory || 'None'
     });
@@ -199,8 +199,8 @@ const StaffBillingPage = () => {
       phone: '',
       email: '',
       address: '',
-      city: 'Bengaluru',
-      state: 'Karnataka',
+      city: '',
+      state: '',
       pinCode: '',
       allergies: 'None',
       medicalHistory: 'None'
@@ -231,7 +231,11 @@ const StaffBillingPage = () => {
         api.getProcedures()
       ]);
 
-      if (billsRes.success) setBills(billsRes.data);
+      if (billsRes.success) {
+        // Exclude cancelled invoices from the active billing table.
+        // Cancelled invoices are voided and preserved for audit only.
+        setBills(billsRes.data.filter((b) => b.invoiceStatus !== 'Cancelled'));
+      }
       if (patsRes.success) setPatients(patsRes.data);
       if (docsRes.success) {
         setDoctors(docsRes.data);
@@ -663,7 +667,7 @@ const StaffBillingPage = () => {
     {
       header: 'Actions',
       render: (row) => (
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <div className="table-actions">
           <button
             onClick={() => handleOpenEdit(row)}
             className="btn btn-secondary btn-sm"
@@ -919,6 +923,7 @@ const StaffBillingPage = () => {
                   name="address"
                   value={patientFormDetails.address}
                   onChange={(e) => setPatientFormDetails({ ...patientFormDetails, address: e.target.value })}
+                  placeholder="Enter street address"
                 />
               </div>
 
@@ -928,6 +933,7 @@ const StaffBillingPage = () => {
                   name="city"
                   value={patientFormDetails.city}
                   onChange={(e) => setPatientFormDetails({ ...patientFormDetails, city: e.target.value })}
+                  placeholder="Enter city"
                 />
                 <FormInput
                   label="Drug Allergies"

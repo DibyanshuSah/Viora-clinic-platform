@@ -462,9 +462,9 @@ const StaffAppointmentsPage = () => {
       }
     },
     {
-      header: 'Actions (RX • Bill • End • Cancel)',
+      header: 'Actions',
       render: (row) => (
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <div className="table-actions">
           {/* 1. RX */}
           <button
             onClick={() => handleOpenRX(row)}

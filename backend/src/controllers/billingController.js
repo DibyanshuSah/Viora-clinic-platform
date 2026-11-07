@@ -56,6 +56,15 @@ class BillingController {
     }
   }
 
+  async permanentlyDeleteBill(req, res, next) {
+    try {
+      const result = await billingService.permanentlyDeleteBill(req.params.id, req.user, req.body?.reason);
+      return successResponse(res, result.message, result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async deletePatientBills(req, res, next) {
     try {
       const result = await billingService.deletePatientTotalBills(req.params.patientId, req.user);

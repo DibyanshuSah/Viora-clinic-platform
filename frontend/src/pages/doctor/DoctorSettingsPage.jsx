@@ -31,14 +31,12 @@ const DoctorSettingsPage = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* PROFILE SUMMARY */}
           <div
+            className="grid-three-column"
             style={{
               padding: '16px',
               backgroundColor: 'var(--bg-app)',
               borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border-subtle)',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
-              gap: '16px'
+              border: '1px solid var(--border-subtle)'
             }}
           >
             <div>
@@ -49,7 +47,7 @@ const DoctorSettingsPage = () => {
                 {user?.name}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--role-doctor-primary)' }}>
-                {doc.specialization || 'Cardiologist'}
+                {doc.specialization || 'Physician'}
               </div>
             </div>
 
@@ -58,10 +56,10 @@ const DoctorSettingsPage = () => {
                 Registration Number
               </span>
               <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
-                {doc.registrationNumber || 'KMC-49210'}
+                {doc.registrationNumber || 'Not configured'}
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                {doc.qualification || 'MBBS, MD'}
+                {doc.qualification || 'Medical Practitioner'}
               </div>
             </div>
 

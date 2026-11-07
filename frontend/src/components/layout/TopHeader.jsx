@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, Bell, Search, Calendar as CalendarIcon, ShieldCheck } from 'lucide-react';
+import { Menu, X, Calendar as CalendarIcon, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useClinic } from '../../context/ClinicContext';
 
-const TopHeader = ({ title, breadcrumb = [], onMenuClick }) => {
+const TopHeader = ({ title, breadcrumb = [], onMenuClick, sidebarOpen = true }) => {
   const { user, role } = useAuth();
   const { clinic } = useClinic();
   const [currentDateTime, setCurrentDateTime] = useState('');
@@ -31,20 +31,20 @@ const TopHeader = ({ title, breadcrumb = [], onMenuClick }) => {
       return {
         bg: 'var(--role-admin-bg)',
         color: 'var(--role-admin-primary)',
-        border: '1px solid #C7D2FE'
+        border: '1px solid var(--role-admin-border)'
       };
     }
     if (role === 'DOCTOR') {
       return {
         bg: 'var(--role-doctor-bg)',
         color: 'var(--role-doctor-primary)',
-        border: '1px solid #BAE6FD'
+        border: '1px solid var(--role-doctor-border)'
       };
     }
     return {
       bg: 'var(--role-staff-bg)',
       color: 'var(--role-staff-primary)',
-      border: '1px solid #99F6E4'
+      border: '1px solid var(--role-staff-border)'
     };
   };
 
@@ -63,57 +63,83 @@ const TopHeader = ({ title, breadcrumb = [], onMenuClick }) => {
         padding: '0 var(--spacing-lg)',
         position: 'sticky',
         top: 0,
-        zIndex: 100
+        zIndex: 100,
+        gap: 'var(--spacing-md)'
       }}
     >
-      {/* LEFT: MOBILE TOGGLE & TITLE / BREADCRUMB */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
+      {/* LEFT: SIDEBAR TOGGLE & TITLE / BREADCRUMB */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', minWidth: 0 }}>
         <button
           className="sidebar-mobile-toggle"
           onClick={onMenuClick}
           style={{
             background: 'transparent',
-            border: 'none',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-sm)',
             color: 'var(--text-main)',
             cursor: 'pointer',
             padding: '6px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            flexShrink: 0,
+            transition: 'background-color var(--transition-fast), border-color var(--transition-fast)'
           }}
-          aria-label="Open navigation menu"
+          aria-label={sidebarOpen ? 'Collapse navigation sidebar' : 'Expand navigation sidebar'}
+          title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
         >
-          <Menu size={20} />
+          {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
         </button>
 
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap' }}>
             <span
               style={{
-                fontSize: '0.75rem',
-                fontWeight: 600,
+                fontSize: '0.72rem',
+                fontWeight: 700,
                 color: 'var(--text-muted)',
                 textTransform: 'uppercase',
-                letterSpacing: '0.04em'
+                letterSpacing: '0.05em'
               }}
             >
               {clinic?.clinicName || 'VIORA'}
             </span>
             {breadcrumb.map((crumb, idx) => (
               <React.Fragment key={idx}>
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>/</span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{crumb}</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>/</span>
+                <span
+                  style={{
+                    fontSize: '0.72rem',
+                    color: 'var(--text-secondary)',
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                  }}
+                >
+                  {crumb}
+                </span>
               </React.Fragment>
             ))}
           </div>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
+          <h1
+            style={{
+              fontSize: '1.1rem',
+              fontWeight: 700,
+              margin: 0,
+              color: 'var(--text-main)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}
+          >
             {title}
           </h1>
         </div>
       </div>
 
-      {/* RIGHT: TIME, ROLE BADGE, NOTIFICATIONS, AVATAR */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
+      {/* RIGHT: TIME, ROLE BADGE, AVATAR */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
         {/* DATE & TIME */}
         <div
           style={{
@@ -122,7 +148,7 @@ const TopHeader = ({ title, breadcrumb = [], onMenuClick }) => {
             gap: '6px',
             fontSize: '0.8125rem',
             color: 'var(--text-secondary)',
-            padding: '4px 10px',
+            padding: '5px 10px',
             backgroundColor: 'var(--bg-app)',
             borderRadius: 'var(--radius-sm)',
             border: '1px solid var(--border-subtle)'
@@ -141,7 +167,7 @@ const TopHeader = ({ title, breadcrumb = [], onMenuClick }) => {
             backgroundColor: badgeStyle.bg,
             color: badgeStyle.color,
             border: badgeStyle.border,
-            fontSize: '0.75rem',
+            fontSize: '0.72rem',
             fontWeight: 700,
             textTransform: 'uppercase',
             letterSpacing: '0.05em',
@@ -154,35 +180,16 @@ const TopHeader = ({ title, breadcrumb = [], onMenuClick }) => {
           <span>{role}</span>
         </div>
 
-        {/* NOTIFICATIONS */}
-        <button
-          style={{
-            background: 'transparent',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-sm)',
-            width: '36px',
-            height: '36px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            color: 'var(--text-secondary)'
-          }}
-          title="System notifications"
-        >
-          <Bell size={16} />
-        </button>
-
-        {/* USER AVATAR */}
+        {/* USER AVATAR / PROFILE BADGE */}
         {user && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {role === 'ADMIN' && clinic?.logoUrl ? (
               <img
                 src={clinic.logoUrl}
-                alt="Admin"
+                alt="Clinic Logo"
                 style={{
-                  width: '36px',
-                  height: '36px',
+                  width: '34px',
+                  height: '34px',
                   borderRadius: 'var(--radius-sm)',
                   objectFit: 'cover',
                   border: '1px solid var(--border-subtle)'
@@ -191,8 +198,8 @@ const TopHeader = ({ title, breadcrumb = [], onMenuClick }) => {
             ) : (
               <div
                 style={{
-                  width: '36px',
-                  height: '36px',
+                  width: '34px',
+                  height: '34px',
                   borderRadius: 'var(--radius-sm)',
                   backgroundColor:
                     role === 'ADMIN'
@@ -205,8 +212,9 @@ const TopHeader = ({ title, breadcrumb = [], onMenuClick }) => {
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontWeight: 700,
-                  fontSize: '0.9rem'
+                  fontSize: '0.85rem'
                 }}
+                title={user.name || user.username}
               >
                 {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
               </div>

@@ -135,6 +135,7 @@ model Patient {
   whatsappNumber   String?
   whatsappConsent  Boolean  @default(true)
   whatsappConsentDate DateTime?
+  status           String   @default("Active")
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

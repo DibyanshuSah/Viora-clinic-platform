@@ -93,8 +93,12 @@ class ApiService {
     });
   }
 
-  delete(endpoint) {
-    return this.request(endpoint, { method: 'DELETE' });
+  delete(endpoint, body = null) {
+    const opts = { method: 'DELETE' };
+    if (body) {
+      opts.body = JSON.stringify(body);
+    }
+    return this.request(endpoint, opts);
   }
 
   // --- DOMAIN API METHODS ---
@@ -137,8 +141,8 @@ class ApiService {
   }
 
   // Doctors
-  getDoctors() {
-    return this.get('/doctors');
+  getDoctors(params = {}) {
+    return this.get('/doctors', params);
   }
 
   getDoctorById(id) {
@@ -158,8 +162,8 @@ class ApiService {
   }
 
   // Staff
-  getStaff() {
-    return this.get('/staff');
+  getStaff(params = {}) {
+    return this.get('/staff', params);
   }
 
   getStaffById(id) {
@@ -196,12 +200,19 @@ class ApiService {
   }
 
   // Patients
-  getPatients(search = '') {
-    return this.get('/patients', search ? { search } : {});
+  getPatients(params = '') {
+    if (typeof params === 'string') {
+      return this.get('/patients', params ? { search: params } : {});
+    }
+    return this.get('/patients', params);
   }
 
   getPatientById(id) {
     return this.get(`/patients/${id}`);
+  }
+
+  archivePatient(id) {
+    return this.patch(`/patients/${id}/archive`);
   }
 
   createPatient(data) {
@@ -300,8 +311,16 @@ class ApiService {
     return this.delete(`/billing/${id}`);
   }
 
-  deletePatientBills(patientId) {
+  permanentlyDeleteBill(id, reason = '') {
+    return this.delete(`/billing/${id}/permanent`, reason ? { reason } : null);
+  }
+
+  cancelPatientBills(patientId) {
     return this.delete(`/billing/patient/${patientId}`);
+  }
+
+  deletePatientBills(patientId) {
+    return this.cancelPatientBills(patientId);
   }
 
   getBillingLogs() {
